@@ -1,6 +1,6 @@
 """
-Desktop Timer Overlay - Production-Ready Windows Application
-A lightweight, persistent digital clock/timer overlay for Windows desktop.
+Retro Flip Clock Desktop Overlay - Production Ready
+A beautiful flip clock widget for Windows desktop with animations.
 
 Requirements: PyQt6
 Install: pip install PyQt6
@@ -12,36 +12,142 @@ import sys
 import winreg
 from pathlib import Path
 from datetime import datetime
-from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, 
-                              QSystemTrayIcon, QMenu, QColorDialog, QSlider,
-                              QDialog, QFormLayout, QCheckBox, QPushButton,
-                              QHBoxLayout, QSpinBox, QComboBox)
-from PyQt6.QtCore import QTimer, Qt, QPoint, QSettings
-from PyQt6.QtGui import QFont, QColor, QAction, QIcon, QPalette, QCursor, QFontDatabase
+from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLayout,
+                              QSystemTrayIcon, QMenu, QSlider, QDialog, 
+                              QFormLayout, QCheckBox, QPushButton, QComboBox)
+from PyQt6.QtCore import QTimer, Qt, QPoint, QSettings, QPropertyAnimation, QEasingCurve, pyqtProperty
+from PyQt6.QtGui import QFont, QColor, QAction, QIcon, QPainter, QPen
 
 
-class SettingsDialog(QDialog):
-    """Settings dialog for timer customization"""
+class FlipDigit(QWidget):
+    """Individual flip clock digit with animation"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Timer Settings")
+        self.current_digit = "0"
+        self.next_digit = "0"
+        self._flip_progress = 0.0
+        self.show_am_pm = False
+        self.am_pm_text = ""
+        
+        self.setFixedSize(80, 110)
+        
+    def set_digit(self, digit, animate=True):
+        """Update digit with optional animation"""
+        if digit != self.current_digit:
+            self.next_digit = digit
+            if animate:
+                self.animate_flip()
+            else:
+                self.current_digit = digit
+                self.update()
+    
+    def animate_flip(self):
+        """Animate the flip transition"""
+        self.animation = QPropertyAnimation(self, b"flip_progress")
+        self.animation.setDuration(400)
+        self.animation.setStartValue(0.0)
+        self.animation.setEndValue(1.0)
+        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.animation.finished.connect(self.on_animation_finished)
+        self.animation.start()
+    
+    def on_animation_finished(self):
+        """Complete the flip animation"""
+        self.current_digit = self.next_digit
+        self._flip_progress = 0.0
+        self.update()
+    
+    @pyqtProperty(float)
+    def flip_progress(self):
+        return self._flip_progress
+    
+    @flip_progress.setter
+    def flip_progress(self, value):
+        self._flip_progress = value
+        self.update()
+    
+    def set_am_pm(self, text):
+        """Set AM/PM indicator"""
+        self.show_am_pm = True
+        self.am_pm_text = text
+        self.update()
+    
+    def paintEvent(self, event):
+        """Custom paint for flip clock appearance"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Background tile
+        painter.setBrush(QColor(45, 45, 45))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(0, 0, 80, 110, 8, 8)
+        
+        # Horizontal split line
+        painter.setPen(QPen(QColor(25, 25, 25), 2))
+        painter.drawLine(5, 55, 75, 55)
+        
+        # Determine which digit to show based on animation
+        display_digit = self.current_digit
+        opacity = 1.0
+        
+        if self._flip_progress > 0:
+            if self._flip_progress < 0.5:
+                display_digit = self.current_digit
+                opacity = 1.0 - (self._flip_progress * 2)
+            else:
+                display_digit = self.next_digit
+                opacity = (self._flip_progress - 0.5) * 2
+        
+        # Draw digit
+        painter.setOpacity(opacity)
+        font = QFont("Arial", 56, QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255))
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, display_digit)
+        
+        # Draw AM/PM indicator
+        if self.show_am_pm:
+            painter.setOpacity(1.0)
+            small_font = QFont("Arial", 10, QFont.Weight.Bold)
+            painter.setFont(small_font)
+            painter.drawText(8, 20, self.am_pm_text)
+
+
+class ColonSeparator(QLabel):
+    """Colon separator between digit pairs"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setText(":")
+        self.setStyleSheet("""
+            QLabel {
+                color: white;
+                font-size: 48px;
+                font-weight: bold;
+                padding: 0px 8px;
+                background: transparent;
+            }
+        """)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+
+class SettingsDialog(QDialog):
+    """Settings dialog for clock customization"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Flip Clock Settings")
         self.setModal(True)
-        self.resize(450, 500)
+        self.resize(400, 350)
         
         layout = QFormLayout()
         
         # Time format
         self.time_format = QComboBox()
-        self.time_format.addItem("Time + Day (10:26 PM • Mon)", "12h_short")
-        self.time_format.addItem("Time + Full Day (10:26:45 PM • Monday)", "12h_full")
-        self.time_format.addItem("Time + Date (10:26 PM • Jan 14)", "12h_date")
-        self.time_format.addItem("Complete (10:26 PM • Mon, Jan 14)", "12h_complete")
-        self.time_format.addItem("24-hour + Day (22:26 • Monday)", "24h_day")
-        self.time_format.addItem("Simple 12-hour (10:26:45 PM)", "12h_simple")
-        self.time_format.addItem("Simple 24-hour (22:26:45)", "24h_simple")
+        self.time_format.addItem("12-hour (with AM/PM)", "12hour")
+        self.time_format.addItem("24-hour (military time)", "24hour")
         
-        # Set current format
         current_format = parent.time_format
         index = self.time_format.findData(current_format)
         if index >= 0:
@@ -49,240 +155,207 @@ class SettingsDialog(QDialog):
         
         layout.addRow("Time Format:", self.time_format)
         
-        # Font family
-        self.font_family = QComboBox()
-        self.font_family.addItem("Segoe UI (Default)", "Segoe UI")
-        self.font_family.addItem("Arial", "Arial")
-        self.font_family.addItem("Consolas (Monospace)", "Consolas")
-        self.font_family.addItem("Impact (Bold)", "Impact")
-        self.font_family.addItem("Courier New", "Courier New")
-        
-        # Add custom fonts from folder
-        custom_fonts = parent.load_custom_fonts()
-        for font_name in custom_fonts:
-            self.font_family.addItem(f"{font_name} (Custom)", font_name)
-        
-        # Set current font
-        current_font = parent.font_family
-        index = self.font_family.findData(current_font)
-        if index >= 0:
-            self.font_family.setCurrentIndex(index)
-        
-        layout.addRow("Font Style:", self.font_family)
-        
-        # Font size
-        self.font_size = QSpinBox()
-        self.font_size.setRange(12, 200)
-        self.font_size.setValue(parent.font_size)
-        self.font_size.setSuffix(" pt")
-        layout.addRow("Font Size:", self.font_size)
+        # Show seconds
+        self.show_seconds = QCheckBox()
+        self.show_seconds.setChecked(parent.show_seconds)
+        layout.addRow("Show Seconds:", self.show_seconds)
         
         # Opacity
         self.opacity = QSlider(Qt.Orientation.Horizontal)
-        self.opacity.setRange(10, 100)
+        self.opacity.setRange(30, 100)
         self.opacity.setValue(int(parent.opacity * 100))
         self.opacity.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.opacity.setTickInterval(10)
         opacity_label = QLabel(f"{int(parent.opacity * 100)}%")
         self.opacity.valueChanged.connect(lambda v: opacity_label.setText(f"{v}%"))
-        opacity_layout = QHBoxLayout()
+        from PyQt6.QtWidgets import QHBoxLayout as HBox
+        opacity_layout = HBox()
         opacity_layout.addWidget(self.opacity)
         opacity_layout.addWidget(opacity_label)
         layout.addRow("Opacity:", opacity_layout)
         
-        # Color picker
-        self.color_btn = QPushButton("Choose Color")
-        self.selected_color = parent.font_color
-        self.color_btn.setStyleSheet(f"background-color: {parent.font_color.name()}; color: white; font-weight: bold;")
-        self.color_btn.clicked.connect(self.pick_color)
-        layout.addRow("Font Color:", self.color_btn)
-        
-        # Stay on desktop only (below other windows)
+        # Desktop only
         self.desktop_only = QCheckBox()
         self.desktop_only.setChecked(parent.desktop_only)
-        layout.addRow("Show on Wallpaper Only:", self.desktop_only)
+        layout.addRow("Stay on Wallpaper:", self.desktop_only)
         
         # Auto-start
         self.auto_start = QCheckBox()
         self.auto_start.setChecked(parent.is_autostart_enabled())
         layout.addRow("Start with Windows:", self.auto_start)
         
-        # Preview label
-        preview_label = QLabel("Preview will update after clicking Apply")
-        preview_label.setStyleSheet("color: gray; font-style: italic;")
-        layout.addRow("", preview_label)
-        
         # Buttons
-        btn_layout = QHBoxLayout()
+        from PyQt6.QtWidgets import QHBoxLayout as HBox
+        btn_layout = HBox()
         apply_btn = QPushButton("Apply")
-        apply_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 5px 15px;")
+        apply_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 8px 20px; border-radius: 4px;")
         apply_btn.clicked.connect(self.accept)
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setStyleSheet("padding: 5px 15px;")
+        cancel_btn.setStyleSheet("padding: 8px 20px; border-radius: 4px;")
         cancel_btn.clicked.connect(self.reject)
         btn_layout.addWidget(apply_btn)
         btn_layout.addWidget(cancel_btn)
         
         layout.addRow(btn_layout)
         self.setLayout(layout)
-    
-    def pick_color(self):
-        color = QColorDialog.getColor(self.selected_color, self, "Select Font Color")
-        if color.isValid():
-            self.selected_color = color
-            self.color_btn.setStyleSheet(f"background-color: {color.name()}; color: white; font-weight: bold;")
 
 
-class TimerOverlay(QWidget):
-    """Main timer overlay window"""
+class FlipClockOverlay(QWidget):
+    """Main flip clock overlay widget"""
     
     def __init__(self):
         super().__init__()
         
-        # Settings persistence
-        self.settings = QSettings("DesktopTimerOverlay", "TimerApp")
-        
-        # Default values
-        self.time_format = self.settings.value("time_format", "12h_short", type=str)
-        self.font_family = self.settings.value("font_family", "Segoe UI", type=str)
-        self.font_size = self.settings.value("font_size", 48, type=int)
-        self.opacity = self.settings.value("opacity", 0.9, type=float)
-        self.font_color = QColor(self.settings.value("font_color", "#FFFFFF"))
+        # Settings
+        self.settings = QSettings("FlipClockOverlay", "ClockApp")
+        self.time_format = self.settings.value("time_format", "12hour", type=str)
+        self.show_seconds = self.settings.value("show_seconds", True, type=bool)
+        self.opacity = self.settings.value("opacity", 0.95, type=float)
         self.desktop_only = self.settings.value("desktop_only", True, type=bool)
-        
-        # Load custom fonts
-        self.custom_fonts = self.load_custom_fonts()
         
         # Restore position
         pos = self.settings.value("position", QPoint(100, 100))
         
+        # Initialize UI
         self.init_ui()
         self.move(pos)
         self.apply_settings()
         
-        # Timer for clock updates
+        # Timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_time)
-        self.timer.start(1000)  # Update every second
+        self.timer.start(1000)
         
-        # Initial time display
+        # Initial time
+        self.last_time = ""
         self.update_time()
         
         # System tray
         self.setup_tray()
         
-        # Mouse drag state
+        # Drag state
         self.drag_position = None
         self.is_dragging = False
     
-    def load_custom_fonts(self):
-        """Load custom fonts from the application directory"""
-        custom_fonts = []
-        app_dir = Path(__file__).parent
-        
-        # Look for font files in the main directory and subdirectories
-        for font_path in app_dir.rglob("*.ttf"):
-            font_id = QFontDatabase.addApplicationFont(str(font_path))
-            if font_id != -1:
-                font_families = QFontDatabase.applicationFontFamilies(font_id)
-                custom_fonts.extend(font_families)
-        
-        for font_path in app_dir.rglob("*.otf"):
-            font_id = QFontDatabase.addApplicationFont(str(font_path))
-            if font_id != -1:
-                font_families = QFontDatabase.applicationFontFamilies(font_id)
-                custom_fonts.extend(font_families)
-        
-        return list(set(custom_fonts))  # Remove duplicates
-    
     def init_ui(self):
         """Initialize the UI"""
-        # Frameless window with transparent background
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
             Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        # Layout
-        layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
+        # Main layout
+        main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(15)
         
-        # Time label
-        self.time_label = QLabel("00:00:00")
-        self.time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.time_label)
+        # Digits layout
+        digits_layout = QHBoxLayout()
+        digits_layout.setSpacing(4)
         
-        self.setLayout(layout)
+        # Create digit widgets
+        self.hour1 = FlipDigit()
+        self.hour2 = FlipDigit()
+        self.min1 = FlipDigit()
+        self.min2 = FlipDigit()
+        self.sec1 = FlipDigit()
+        self.sec2 = FlipDigit()
+        
+        # Build layout
+        digits_layout.addWidget(self.hour1)
+        digits_layout.addWidget(self.hour2)
+        digits_layout.addWidget(ColonSeparator())
+        digits_layout.addWidget(self.min1)
+        digits_layout.addWidget(self.min2)
+        
+        if self.show_seconds:
+            digits_layout.addWidget(ColonSeparator())
+            digits_layout.addWidget(self.sec1)
+            digits_layout.addWidget(self.sec2)
+        
+        # Date label
+        self.date_label = QLabel()
+        self.date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.date_label.setStyleSheet("""
+            QLabel {
+                color: rgba(255, 255, 255, 180);
+                font-size: 16px;
+                font-weight: normal;
+                font-family: 'Segoe UI', Arial;
+                letter-spacing: 3px;
+                padding: 5px;
+                background: transparent;
+            }
+        """)
+        
+        main_layout.addLayout(digits_layout)
+        main_layout.addWidget(self.date_label)
+        
+        self.setLayout(main_layout)
         self.adjustSize()
     
     def apply_settings(self):
-        """Apply current settings to the UI"""
-        # Font
-        font = QFont(self.font_family, self.font_size, QFont.Weight.Bold)
-        self.time_label.setFont(font)
-        
-        # Color
-        palette = self.time_label.palette()
-        palette.setColor(QPalette.ColorRole.WindowText, self.font_color)
-        self.time_label.setPalette(palette)
-        
-        # Opacity
+        """Apply current settings"""
         self.setWindowOpacity(self.opacity)
         
-        # Window flags based on desktop_only setting
         if self.desktop_only:
-            # Stay below normal windows, above desktop
             self.setWindowFlags(
                 Qt.WindowType.FramelessWindowHint |
                 Qt.WindowType.Tool |
                 Qt.WindowType.WindowStaysOnBottomHint
             )
         else:
-            # Stay on top of everything
             self.setWindowFlags(
                 Qt.WindowType.FramelessWindowHint |
                 Qt.WindowType.Tool |
                 Qt.WindowType.WindowStaysOnTopHint
             )
         
-        self.show()  # Re-show to apply window flags
-        self.adjustSize()
+        self.show()
     
     def update_time(self):
-        """Update the displayed time based on selected format"""
+        """Update the displayed time with animations"""
         now = datetime.now()
         
-        if self.time_format == "12h_short":
-            # 10:26 PM • Mon
-            time_str = now.strftime("%I:%M %p • %a")
-        elif self.time_format == "12h_full":
-            # 10:26:45 PM • Monday
-            time_str = now.strftime("%I:%M:%S %p • %A")
-        elif self.time_format == "12h_date":
-            # 10:26 PM • Jan 14
-            time_str = now.strftime("%I:%M %p • %b %d")
-        elif self.time_format == "12h_complete":
-            # 10:26 PM • Mon, Jan 14
-            time_str = now.strftime("%I:%M %p • %a, %b %d")
-        elif self.time_format == "24h_day":
-            # 22:26 • Monday
-            time_str = now.strftime("%H:%M • %A")
-        elif self.time_format == "12h_simple":
-            # 10:26:45 PM
-            time_str = now.strftime("%I:%M:%S %p")
-        else:  # 24h_simple
-            # 22:26:45
+        # Format time based on settings
+        if self.time_format == "12hour":
+            time_str = now.strftime("%I:%M:%S")
+            am_pm = now.strftime("%p")
+        else:
             time_str = now.strftime("%H:%M:%S")
+            am_pm = ""
         
-        self.time_label.setText(time_str)
+        # Parse digits
+        digits = time_str.replace(":", "")
+        
+        # Check if this is the first update
+        animate = self.last_time != ""
+        
+        # Update digits with animation
+        self.hour1.set_digit(digits[0], animate)
+        self.hour2.set_digit(digits[1], animate)
+        self.min1.set_digit(digits[2], animate)
+        self.min2.set_digit(digits[3], animate)
+        
+        if self.show_seconds:
+            self.sec1.set_digit(digits[4], animate)
+            self.sec2.set_digit(digits[5], animate)
+        
+        # Update AM/PM indicator
+        if am_pm:
+            self.hour1.set_am_pm(am_pm)
+        
+        # Update date
+        date_str = now.strftime("%a %b %d").upper()
+        self.date_label.setText(date_str)
+        
+        self.last_time = time_str
     
     def setup_tray(self):
-        """Setup system tray icon and menu"""
-        # Create tray icon
+        """Setup system tray"""
         self.tray_icon = QSystemTrayIcon(self)
         
-        # Create icon
         icon = QIcon.fromTheme("clock")
         if icon.isNull():
             from PyQt6.QtGui import QPixmap, QPainter
@@ -297,7 +370,6 @@ class TimerOverlay(QWidget):
         
         self.tray_icon.setIcon(icon)
         
-        # Create menu
         tray_menu = QMenu()
         
         toggle_action = QAction("Show/Hide", self)
@@ -316,17 +388,13 @@ class TimerOverlay(QWidget):
         
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
-        
-        # Double-click to toggle
         self.tray_icon.activated.connect(self.tray_activated)
     
     def tray_activated(self, reason):
-        """Handle tray icon activation"""
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.toggle_visibility()
     
     def toggle_visibility(self):
-        """Toggle timer visibility"""
         if self.isVisible():
             self.hide()
         else:
@@ -336,44 +404,46 @@ class TimerOverlay(QWidget):
         """Show settings dialog"""
         dialog = SettingsDialog(self)
         if dialog.exec():
-            # Apply new settings
+            old_format = self.time_format
+            old_seconds = self.show_seconds
+            
             self.time_format = dialog.time_format.currentData()
-            self.font_family = dialog.font_family.currentData()
-            self.font_size = dialog.font_size.value()
+            self.show_seconds = dialog.show_seconds.isChecked()
             self.opacity = dialog.opacity.value() / 100.0
-            self.font_color = dialog.selected_color
             self.desktop_only = dialog.desktop_only.isChecked()
             
-            # Save settings
             self.save_settings()
-            self.apply_settings()
             
-            # Update time immediately with new format
+            # Rebuild UI if seconds toggle changed
+            if old_seconds != self.show_seconds:
+                # Clear and rebuild
+                while self.layout().count():
+                    item = self.layout().takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                self.init_ui()
+                self.last_time = ""
+            
+            self.apply_settings()
             self.update_time()
             
-            # Handle auto-start
             if dialog.auto_start.isChecked():
                 self.enable_autostart()
             else:
                 self.disable_autostart()
     
     def save_settings(self):
-        """Save settings to persistent storage"""
         self.settings.setValue("time_format", self.time_format)
-        self.settings.setValue("font_family", self.font_family)
-        self.settings.setValue("font_size", self.font_size)
+        self.settings.setValue("show_seconds", self.show_seconds)
         self.settings.setValue("opacity", self.opacity)
-        self.settings.setValue("font_color", self.font_color.name())
         self.settings.setValue("desktop_only", self.desktop_only)
         self.settings.setValue("position", self.pos())
     
     def quit_app(self):
-        """Quit the application"""
         self.save_settings()
         QApplication.quit()
     
     def mousePressEvent(self, event):
-        """Handle mouse press for dragging"""
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_dragging = True
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
@@ -381,44 +451,32 @@ class TimerOverlay(QWidget):
             event.accept()
     
     def mouseMoveEvent(self, event):
-        """Handle mouse move for dragging"""
         if event.buttons() == Qt.MouseButton.LeftButton and self.is_dragging and self.drag_position:
             self.move(event.globalPosition().toPoint() - self.drag_position)
             event.accept()
     
     def mouseReleaseEvent(self, event):
-        """Handle mouse release"""
         if event.button() == Qt.MouseButton.LeftButton:
             self.is_dragging = False
             self.drag_position = None
             self.setCursor(Qt.CursorShape.ArrowCursor)
-            self.save_settings()  # Save position after drag
+            self.save_settings()
             event.accept()
     
     def enterEvent(self, event):
-        """Change cursor when hovering"""
         if not self.is_dragging:
             self.setCursor(Qt.CursorShape.OpenHandCursor)
     
     def leaveEvent(self, event):
-        """Reset cursor when leaving"""
         if not self.is_dragging:
             self.setCursor(Qt.CursorShape.ArrowCursor)
     
     def closeEvent(self, event):
-        """Handle close event"""
         event.ignore()
         self.hide()
-        self.tray_icon.showMessage(
-            "Desktop Timer",
-            "Timer is still running in system tray. Right-click tray icon to exit.",
-            QSystemTrayIcon.MessageIcon.Information,
-            2000
-        )
     
     @staticmethod
     def get_autostart_key():
-        """Get the registry key for auto-start"""
         return winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Run",
@@ -427,27 +485,24 @@ class TimerOverlay(QWidget):
         )
     
     def enable_autostart(self):
-        """Enable auto-start with Windows"""
         try:
             key = self.get_autostart_key()
             exe_path = str(Path(sys.executable).resolve())
             script_path = str(Path(__file__).resolve())
             
-            # Use pythonw.exe to avoid console window
             if "python.exe" in exe_path.lower():
                 exe_path = exe_path.lower().replace("python.exe", "pythonw.exe")
             
             value = f'"{exe_path}" "{script_path}"'
-            winreg.SetValueEx(key, "DesktopTimerOverlay", 0, winreg.REG_SZ, value)
+            winreg.SetValueEx(key, "FlipClockOverlay", 0, winreg.REG_SZ, value)
             winreg.CloseKey(key)
         except Exception as e:
             print(f"Failed to enable auto-start: {e}")
     
     def disable_autostart(self):
-        """Disable auto-start with Windows"""
         try:
             key = self.get_autostart_key()
-            winreg.DeleteValue(key, "DesktopTimerOverlay")
+            winreg.DeleteValue(key, "FlipClockOverlay")
             winreg.CloseKey(key)
         except FileNotFoundError:
             pass
@@ -455,10 +510,9 @@ class TimerOverlay(QWidget):
             print(f"Failed to disable auto-start: {e}")
     
     def is_autostart_enabled(self):
-        """Check if auto-start is enabled"""
         try:
             key = self.get_autostart_key()
-            winreg.QueryValueEx(key, "DesktopTimerOverlay")
+            winreg.QueryValueEx(key, "FlipClockOverlay")
             winreg.CloseKey(key)
             return True
         except FileNotFoundError:
@@ -468,12 +522,11 @@ class TimerOverlay(QWidget):
 
 
 def main():
-    """Main entry point"""
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     
-    overlay = TimerOverlay()
-    overlay.show()
+    clock = FlipClockOverlay()
+    clock.show()
     
     sys.exit(app.exec())
 
