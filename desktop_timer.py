@@ -1,6 +1,6 @@
 """
-Retro Flip Clock Desktop Overlay - Production Ready
-A beautiful flip clock widget for Windows desktop with animations.
+Retro Flip Clock Desktop Overlay - Fixed Size Version
+A beautiful flip clock widget for Windows desktop.
 
 Requirements: PyQt6
 Install: pip install PyQt6
@@ -15,57 +15,49 @@ from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLayout,
                               QSystemTrayIcon, QMenu, QSlider, QDialog, 
                               QFormLayout, QCheckBox, QPushButton, QComboBox)
-from PyQt6.QtCore import QTimer, Qt, QPoint, QSettings, QPropertyAnimation, QEasingCurve, pyqtProperty
-from PyQt6.QtGui import QFont, QColor, QAction, QIcon, QPainter, QPen
+from PyQt6.QtCore import QTimer, Qt, QPoint, QSettings
+from PyQt6.QtGui import QFont, QColor, QAction, QIcon, QPainter, QPen, QCursor
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+
+
+class SingleInstance:
+    """Ensure only one instance of the application runs"""
+    
+    def __init__(self, app_id):
+        self.app_id = app_id
+        self.socket = QLocalSocket()
+        self.socket.connectToServer(app_id)
+        
+        if self.socket.waitForConnected(500):
+            self.is_running = True
+            self.socket.disconnectFromServer()
+        else:
+            self.is_running = False
+            self.server = QLocalServer()
+            self.server.listen(app_id)
+    
+    def __del__(self):
+        if not self.is_running and hasattr(self, 'server'):
+            self.server.close()
 
 
 class FlipDigit(QWidget):
-    """Individual flip clock digit with animation"""
+    """Individual flip clock digit - fixed size"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_digit = "0"
-        self.next_digit = "0"
-        self._flip_progress = 0.0
         self.show_am_pm = False
         self.am_pm_text = ""
         
-        self.setFixedSize(80, 110)
+        # Perfect size for 16-inch laptop
+        self.setFixedSize(70, 95)
         
-    def set_digit(self, digit, animate=True):
-        """Update digit with optional animation"""
+    def set_digit(self, digit):
+        """Update digit"""
         if digit != self.current_digit:
-            self.next_digit = digit
-            if animate:
-                self.animate_flip()
-            else:
-                self.current_digit = digit
-                self.update()
-    
-    def animate_flip(self):
-        """Animate the flip transition"""
-        self.animation = QPropertyAnimation(self, b"flip_progress")
-        self.animation.setDuration(400)
-        self.animation.setStartValue(0.0)
-        self.animation.setEndValue(1.0)
-        self.animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self.animation.finished.connect(self.on_animation_finished)
-        self.animation.start()
-    
-    def on_animation_finished(self):
-        """Complete the flip animation"""
-        self.current_digit = self.next_digit
-        self._flip_progress = 0.0
-        self.update()
-    
-    @pyqtProperty(float)
-    def flip_progress(self):
-        return self._flip_progress
-    
-    @flip_progress.setter
-    def flip_progress(self, value):
-        self._flip_progress = value
-        self.update()
+            self.current_digit = digit
+            self.update()
     
     def set_am_pm(self, text):
         """Set AM/PM indicator"""
@@ -78,58 +70,72 @@ class FlipDigit(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
+        w = self.width()
+        h = self.height()
+        
         # Background tile
         painter.setBrush(QColor(45, 45, 45))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(0, 0, 80, 110, 8, 8)
+        painter.drawRoundedRect(0, 0, w, h, 8, 8)
         
         # Horizontal split line
         painter.setPen(QPen(QColor(25, 25, 25), 2))
-        painter.drawLine(5, 55, 75, 55)
-        
-        # Determine which digit to show based on animation
-        display_digit = self.current_digit
-        opacity = 1.0
-        
-        if self._flip_progress > 0:
-            if self._flip_progress < 0.5:
-                display_digit = self.current_digit
-                opacity = 1.0 - (self._flip_progress * 2)
-            else:
-                display_digit = self.next_digit
-                opacity = (self._flip_progress - 0.5) * 2
+        painter.drawLine(5, h // 2, w - 5, h // 2)
         
         # Draw digit
-        painter.setOpacity(opacity)
-        font = QFont("Arial", 56, QFont.Weight.Bold)
+        font = QFont("Arial", 48, QFont.Weight.Bold)
         painter.setFont(font)
         painter.setPen(QColor(255, 255, 255))
-        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, display_digit)
+        painter.drawText(0, 0, w, h, Qt.AlignmentFlag.AlignCenter, self.current_digit)
         
-        # Draw AM/PM indicator
+        # Draw AM/PM indicator - always visible
         if self.show_am_pm:
-            painter.setOpacity(1.0)
-            small_font = QFont("Arial", 10, QFont.Weight.Bold)
+            small_font = QFont("Arial", 11, QFont.Weight.Bold)
             painter.setFont(small_font)
-            painter.drawText(8, 20, self.am_pm_text)
+            painter.setPen(QColor(220, 220, 220))
+            painter.drawText(8, 18, self.am_pm_text)
 
 
 class ColonSeparator(QLabel):
-    """Colon separator between digit pairs"""
+    """Colon separator - minimal width"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setText(":")
+        self.setFixedWidth(15)
         self.setStyleSheet("""
             QLabel {
                 color: white;
-                font-size: 48px;
+                font-size: 50px;
                 font-weight: bold;
-                padding: 0px 8px;
+                padding: 0px;
+                margin: 0px;
                 background: transparent;
             }
         """)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+
+class CloseButtonWidget(QPushButton):
+    """Hovering close button"""
+    
+    def __init__(self, parent=None):
+        super().__init__("✕", parent)
+        self.setFixedSize(28, 28)
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(220, 53, 69, 180);
+                color: white;
+                border: none;
+                border-radius: 14px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(200, 35, 51, 220);
+            }
+        """)
+        self.hide()
 
 
 class SettingsDialog(QDialog):
@@ -139,11 +145,10 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Flip Clock Settings")
         self.setModal(True)
-        self.resize(400, 350)
+        self.resize(400, 280)
         
         layout = QFormLayout()
         
-        # Time format
         self.time_format = QComboBox()
         self.time_format.addItem("12-hour (with AM/PM)", "12hour")
         self.time_format.addItem("24-hour (military time)", "24hour")
@@ -155,12 +160,10 @@ class SettingsDialog(QDialog):
         
         layout.addRow("Time Format:", self.time_format)
         
-        # Show seconds
         self.show_seconds = QCheckBox()
         self.show_seconds.setChecked(parent.show_seconds)
         layout.addRow("Show Seconds:", self.show_seconds)
         
-        # Opacity
         self.opacity = QSlider(Qt.Orientation.Horizontal)
         self.opacity.setRange(30, 100)
         self.opacity.setValue(int(parent.opacity * 100))
@@ -168,25 +171,20 @@ class SettingsDialog(QDialog):
         self.opacity.setTickInterval(10)
         opacity_label = QLabel(f"{int(parent.opacity * 100)}%")
         self.opacity.valueChanged.connect(lambda v: opacity_label.setText(f"{v}%"))
-        from PyQt6.QtWidgets import QHBoxLayout as HBox
-        opacity_layout = HBox()
+        opacity_layout = QHBoxLayout()
         opacity_layout.addWidget(self.opacity)
         opacity_layout.addWidget(opacity_label)
         layout.addRow("Opacity:", opacity_layout)
         
-        # Desktop only
         self.desktop_only = QCheckBox()
         self.desktop_only.setChecked(parent.desktop_only)
         layout.addRow("Stay on Wallpaper:", self.desktop_only)
         
-        # Auto-start
         self.auto_start = QCheckBox()
         self.auto_start.setChecked(parent.is_autostart_enabled())
         layout.addRow("Start with Windows:", self.auto_start)
         
-        # Buttons
-        from PyQt6.QtWidgets import QHBoxLayout as HBox
-        btn_layout = HBox()
+        btn_layout = QHBoxLayout()
         apply_btn = QPushButton("Apply")
         apply_btn.setStyleSheet("background-color: #2196F3; color: white; font-weight: bold; padding: 8px 20px; border-radius: 4px;")
         apply_btn.clicked.connect(self.accept)
@@ -201,99 +199,118 @@ class SettingsDialog(QDialog):
 
 
 class FlipClockOverlay(QWidget):
-    """Main flip clock overlay widget"""
+    """Main flip clock overlay - fixed size"""
     
     def __init__(self):
         super().__init__()
         
-        # Settings
         self.settings = QSettings("FlipClockOverlay", "ClockApp")
         self.time_format = self.settings.value("time_format", "12hour", type=str)
         self.show_seconds = self.settings.value("show_seconds", True, type=bool)
         self.opacity = self.settings.value("opacity", 0.95, type=float)
         self.desktop_only = self.settings.value("desktop_only", True, type=bool)
         
-        # Restore position
         pos = self.settings.value("position", QPoint(100, 100))
         
-        # Initialize UI
         self.init_ui()
         self.move(pos)
         self.apply_settings()
         
-        # Timer
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_time)
         self.timer.start(1000)
         
-        # Initial time
-        self.last_time = ""
         self.update_time()
-        
-        # System tray
         self.setup_tray()
         
-        # Drag state
         self.drag_position = None
         self.is_dragging = False
     
     def init_ui(self):
-        """Initialize the UI"""
+        """Initialize the UI with fixed size"""
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint | 
             Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMouseTracking(True)
         
-        # Main layout
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(15)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.setSpacing(8)
+        
+        # Close button
+        self.close_btn = CloseButtonWidget(self)
+        self.close_btn.clicked.connect(self.quit_app)
+        self.close_btn.hide()
         
         # Digits layout
-        digits_layout = QHBoxLayout()
-        digits_layout.setSpacing(4)
+        self.digits_widget = QWidget()
+        self.digits_layout = QHBoxLayout(self.digits_widget)
+        self.digits_layout.setSpacing(4)
+        self.digits_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Create digit widgets
         self.hour1 = FlipDigit()
         self.hour2 = FlipDigit()
+        self.colon1 = ColonSeparator()
         self.min1 = FlipDigit()
         self.min2 = FlipDigit()
+        self.colon2 = ColonSeparator()
         self.sec1 = FlipDigit()
         self.sec2 = FlipDigit()
         
-        # Build layout
-        digits_layout.addWidget(self.hour1)
-        digits_layout.addWidget(self.hour2)
-        digits_layout.addWidget(ColonSeparator())
-        digits_layout.addWidget(self.min1)
-        digits_layout.addWidget(self.min2)
+        self.digits_layout.addWidget(self.hour1)
+        self.digits_layout.addWidget(self.hour2)
+        self.digits_layout.addWidget(self.colon1)
+        self.digits_layout.addWidget(self.min1)
+        self.digits_layout.addWidget(self.min2)
         
         if self.show_seconds:
-            digits_layout.addWidget(ColonSeparator())
-            digits_layout.addWidget(self.sec1)
-            digits_layout.addWidget(self.sec2)
+            self.digits_layout.addWidget(self.colon2)
+            self.digits_layout.addWidget(self.sec1)
+            self.digits_layout.addWidget(self.sec2)
         
-        # Date label
+        # Date label - VERY BOLD
         self.date_label = QLabel()
         self.date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.date_label.setStyleSheet("""
             QLabel {
-                color: rgba(255, 255, 255, 180);
+                color: white;
                 font-size: 16px;
-                font-weight: normal;
-                font-family: 'Segoe UI', Arial;
-                letter-spacing: 3px;
-                padding: 5px;
-                background: transparent;
+                font-weight: 900;
+                font-family: 'Arial Black', Arial;
+                letter-spacing: 4px;
+                padding: 8px;
+                background: rgba(0, 0, 0, 35);
+                border-radius: 4px;
             }
         """)
         
-        main_layout.addLayout(digits_layout)
+        main_layout.addWidget(self.digits_widget)
         main_layout.addWidget(self.date_label)
         
         self.setLayout(main_layout)
         self.adjustSize()
+        self.setFixedSize(self.sizeHint())
+        
+        self.position_close_button()
+    
+    def position_close_button(self):
+        """Position close button in top-right corner"""
+        self.close_btn.move(self.width() - 35, 8)
+        self.close_btn.raise_()
+    
+    def enterEvent(self, event):
+        """Show close button on hover"""
+        self.close_btn.show()
+        self.close_btn.raise_()
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+    
+    def leaveEvent(self, event):
+        """Hide close button when not hovering"""
+        self.close_btn.hide()
+        if not self.is_dragging:
+            self.setCursor(Qt.CursorShape.ArrowCursor)
     
     def apply_settings(self):
         """Apply current settings"""
@@ -315,10 +332,9 @@ class FlipClockOverlay(QWidget):
         self.show()
     
     def update_time(self):
-        """Update the displayed time with animations"""
+        """Update the displayed time"""
         now = datetime.now()
         
-        # Format time based on settings
         if self.time_format == "12hour":
             time_str = now.strftime("%I:%M:%S")
             am_pm = now.strftime("%p")
@@ -326,31 +342,45 @@ class FlipClockOverlay(QWidget):
             time_str = now.strftime("%H:%M:%S")
             am_pm = ""
         
-        # Parse digits
         digits = time_str.replace(":", "")
         
-        # Check if this is the first update
-        animate = self.last_time != ""
-        
-        # Update digits with animation
-        self.hour1.set_digit(digits[0], animate)
-        self.hour2.set_digit(digits[1], animate)
-        self.min1.set_digit(digits[2], animate)
-        self.min2.set_digit(digits[3], animate)
+        self.hour1.set_digit(digits[0])
+        self.hour2.set_digit(digits[1])
+        self.min1.set_digit(digits[2])
+        self.min2.set_digit(digits[3])
         
         if self.show_seconds:
-            self.sec1.set_digit(digits[4], animate)
-            self.sec2.set_digit(digits[5], animate)
+            self.sec1.set_digit(digits[4])
+            self.sec2.set_digit(digits[5])
         
-        # Update AM/PM indicator
         if am_pm:
             self.hour1.set_am_pm(am_pm)
         
-        # Update date
         date_str = now.strftime("%a %b %d").upper()
         self.date_label.setText(date_str)
+    
+    def rebuild_clock(self):
+        """Rebuild the clock layout"""
+        while self.digits_layout.count():
+            item = self.digits_layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
         
-        self.last_time = time_str
+        self.digits_layout.addWidget(self.hour1)
+        self.digits_layout.addWidget(self.hour2)
+        self.digits_layout.addWidget(self.colon1)
+        self.digits_layout.addWidget(self.min1)
+        self.digits_layout.addWidget(self.min2)
+        
+        if self.show_seconds:
+            self.digits_layout.addWidget(self.colon2)
+            self.digits_layout.addWidget(self.sec1)
+            self.digits_layout.addWidget(self.sec2)
+        
+        self.adjustSize()
+        self.setFixedSize(self.sizeHint())
+        self.position_close_button()
+        self.update_time()
     
     def setup_tray(self):
         """Setup system tray"""
@@ -358,7 +388,7 @@ class FlipClockOverlay(QWidget):
         
         icon = QIcon.fromTheme("clock")
         if icon.isNull():
-            from PyQt6.QtGui import QPixmap, QPainter
+            from PyQt6.QtGui import QPixmap
             pixmap = QPixmap(32, 32)
             pixmap.fill(Qt.GlobalColor.transparent)
             painter = QPainter(pixmap)
@@ -404,7 +434,6 @@ class FlipClockOverlay(QWidget):
         """Show settings dialog"""
         dialog = SettingsDialog(self)
         if dialog.exec():
-            old_format = self.time_format
             old_seconds = self.show_seconds
             
             self.time_format = dialog.time_format.currentData()
@@ -414,15 +443,8 @@ class FlipClockOverlay(QWidget):
             
             self.save_settings()
             
-            # Rebuild UI if seconds toggle changed
             if old_seconds != self.show_seconds:
-                # Clear and rebuild
-                while self.layout().count():
-                    item = self.layout().takeAt(0)
-                    if item.widget():
-                        item.widget().deleteLater()
-                self.init_ui()
-                self.last_time = ""
+                self.rebuild_clock()
             
             self.apply_settings()
             self.update_time()
@@ -445,6 +467,10 @@ class FlipClockOverlay(QWidget):
     
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # Don't start drag if clicking close button
+            if self.close_btn.isVisible() and self.close_btn.geometry().contains(event.pos()):
+                return
+            
             self.is_dragging = True
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -462,14 +488,6 @@ class FlipClockOverlay(QWidget):
             self.setCursor(Qt.CursorShape.ArrowCursor)
             self.save_settings()
             event.accept()
-    
-    def enterEvent(self, event):
-        if not self.is_dragging:
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
-    
-    def leaveEvent(self, event):
-        if not self.is_dragging:
-            self.setCursor(Qt.CursorShape.ArrowCursor)
     
     def closeEvent(self, event):
         event.ignore()
@@ -524,6 +542,12 @@ class FlipClockOverlay(QWidget):
 def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    
+    # Prevent multiple instances
+    instance_check = SingleInstance("FlipClockOverlay_SingleInstance")
+    if instance_check.is_running:
+        print("Another instance is already running. Exiting.")
+        sys.exit(0)
     
     clock = FlipClockOverlay()
     clock.show()
