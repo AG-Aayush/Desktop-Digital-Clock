@@ -37,10 +37,17 @@ Developed against PyQt6 6.10.2 / Qt 6.10.0 on Python 3.14.
 ```bat
 git clone https://github.com/AG-Aayush/Desktop-Digital-Clock.git
 cd Desktop-Digital-Clock
-py -m pip install -r requirements.txt
+py -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
 ```
 
-Use `py` rather than `python`. `run_timer.bat` launches through the py launcher, so PyQt6 must be installed for **that** interpreter — installing it under a different Python on your `PATH` will leave the clock unable to start.
+Dependencies live in the project's own `.venv`, not the global Python. `run_timer.bat` looks for `.venv` first and only falls back to the py launcher's default interpreter if the environment is missing.
+
+For development work (packaging included), install the dev requirements instead:
+
+```bat
+.venv\Scripts\python -m pip install -r requirements-dev.txt
+```
 
 ---
 
@@ -112,7 +119,9 @@ Desktop-Digital-Clock/
 ├── FlipClock.spec      # PyInstaller build definition
 ├── make_icon.py        # Regenerates FlipClock.ico
 ├── FlipClock.ico       # Multi-resolution app icon
-├── requirements.txt    # Python dependencies
+├── pyproject.toml      # Project metadata (pip install . also works)
+├── requirements.txt    # Runtime dependencies
+├── requirements-dev.txt# Adds PyInstaller for packaging
 ├── .gitignore
 ├── .gitattributes
 └── README.md
@@ -138,7 +147,7 @@ The clock renders at a fixed size tuned for a 16-inch laptop. This is deliberate
 You can package the clock into an app that runs without Python installed.
 
 ```bat
-py -m pip install pyinstaller
+.venv\Scripts\python -m pip install -r requirements-dev.txt
 build.bat
 ```
 

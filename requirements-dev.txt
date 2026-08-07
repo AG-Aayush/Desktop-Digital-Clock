@@ -1,0 +1,4 @@
+# Tools needed to develop and package the app, on top of the runtime deps.
+#     .venv\Scripts\python -m pip install -r requirements-dev.txt
+-r requirements.txt
+pyinstaller>=6.0

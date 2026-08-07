@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flipclock"
+version = "1.0.0"
+description = "Retro split-flap clock overlay for the Windows desktop"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["PyQt6>=6.5,<7.0"]
+
+[project.gui-scripts]
+flipclock = "desktop_timer:main"
+
+[tool.setuptools]
+py-modules = ["desktop_timer"]
