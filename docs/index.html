@@ -1024,18 +1024,25 @@ footer a { color: var(--muted); }
 /* ---- donation links -------------------------------------------------
    Two routes, because no single one covers everybody.
 
-   Buy Me a Momo is Nepal-based and settles through Khalti and eSewa, so
-   the money actually arrives -- Buy Me a Coffee, Ko-fi and GitHub Sponsors
-   all pay out via Stripe or PayPal, which do not serve Nepal.
+   BuyMeMomo is Nepal-based and settles through Khalti and eSewa, so the
+   money actually arrives -- Buy Me a Coffee, Ko-fi and GitHub Sponsors all
+   pay out via Stripe or PayPal, which do not serve Nepal.
 
    The second is for supporters abroad who have no Nepali wallet. Any URL
    works: a Wise payment link, paypal.me, or a crypto address page.
 
-   Each button hides itself until its placeholder is replaced, and the whole
-   section disappears if neither is set -- so a half-configured page never
-   sends anyone to a dead link.
+   Each button hides itself until its URL is set, and the whole section
+   disappears if neither is -- so a half-configured page never sends anyone
+   to a dead link.
    -------------------------------------------------------------------- */
-var MOMO_URL = "https://www.buymeamomo.com/YOUR-USERNAME-HERE";
+
+var MOMO_URL = "https://buymemomo.com/aayushgnawali";
+
+// The BuyMeMomo account is still on the waitlist. Set this to true once the
+// page actually loads -- until then the button stays hidden rather than
+// sending supporters to a 404.
+var MOMO_LIVE = false;
+
 var INTERNATIONAL_URL = "https://wise.com/pay/me/YOUR-WISE-LINK-HERE";
 
 (function () {
@@ -1049,7 +1056,7 @@ var INTERNATIONAL_URL = "https://wise.com/pay/me/YOUR-WISE-LINK-HERE";
     return ready;
   }
 
-  var momo = wire(MOMO_URL, "momoBtn", "momoOption");
+  var momo = wire(MOMO_LIVE ? MOMO_URL : "", "momoBtn", "momoOption");
   var intl = wire(INTERNATIONAL_URL, "intlBtn", "intlOption");
 
   if (!momo && !intl) {
