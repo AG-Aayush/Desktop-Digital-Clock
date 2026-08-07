@@ -19,8 +19,45 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLa
 from PyQt6.QtCore import (QTimer, Qt, QPoint, QRect, QSettings, QVariantAnimation,
                           QEasingCurve)
 from PyQt6.QtGui import (QFont, QColor, QAction, QIcon, QPainter, QPen, QCursor,
-                         QPixmap, QFontMetrics)
+                         QPixmap, QFontMetrics, QFontDatabase)
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+
+
+# Bahnschrift is Microsoft's DIN derivative -- DIN is the transit-signage
+# typeface, and split-flap boards are railway hardware, so it suits the form
+# far better than Arial. Each fallback is checked before use because font
+# availability varies across Windows versions.
+FONT_PREFERENCES = ("Bahnschrift SemiBold", "Bahnschrift", "Segoe UI", "Arial")
+LIGHT_FONT_PREFERENCES = ("Bahnschrift Light", "Bahnschrift", "Segoe UI", "Arial")
+MONO_FONT_PREFERENCES = ("Cascadia Mono", "Consolas", "Courier New")
+_family_cache = {}
+
+
+def _first_available_family(preferences):
+    """First installed family from the list. Requires a QApplication."""
+    cached = _family_cache.get(preferences)
+    if cached is None:
+        available = set(QFontDatabase.families())
+        cached = next((n for n in preferences if n in available), "Arial")
+        _family_cache[preferences] = cached
+    return cached
+
+
+def clock_font_family():
+    return _first_available_family(FONT_PREFERENCES)
+
+
+def light_font_family():
+    return _first_available_family(LIGHT_FONT_PREFERENCES)
+
+
+def mono_font_family():
+    return _first_available_family(MONO_FONT_PREFERENCES)
+
+
+# The clock's interchangeable skins. All three render the same time from the
+# same overlay; only the display widget differs.
+TEMPLATES = ("flip", "minimal", "terminal")
 
 
 # Name of our value under the Run key, and the two registry locations that
@@ -119,7 +156,7 @@ class FlipDigit(QWidget):
         painter.setBrush(QColor(45, 45, 45))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(0, 0, w, h, 8, 8)
-        font = QFont("Arial", 48, QFont.Weight.Bold)
+        font = QFont(clock_font_family(), 48, QFont.Weight.Bold)
         painter.setFont(font)
         painter.setPen(QColor(255, 255, 255))
 
@@ -210,7 +247,7 @@ class FlipDigit(QWidget):
 
         # Draw AM/PM indicator - always visible
         if self.show_am_pm:
-            small_font = QFont("Arial", 11, QFont.Weight.Bold)
+            small_font = QFont(clock_font_family(), 11, QFont.Weight.Bold)
             painter.setFont(small_font)
             painter.setPen(QColor(220, 220, 220))
             painter.drawText(8, 18, self.am_pm_text)
@@ -223,17 +260,193 @@ class ColonSeparator(QLabel):
         super().__init__(parent)
         self.setText(":")
         self.setFixedWidth(15)
-        self.setStyleSheet("""
-            QLabel {
+        self.setStyleSheet(f"""
+            QLabel {{
                 color: white;
+                font-family: '{clock_font_family()}';
                 font-size: 50px;
                 font-weight: bold;
                 padding: 0px;
                 margin: 0px;
                 background: transparent;
-            }
+            }}
         """)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+
+class FlipTimeDisplay(QWidget):
+    """Template: the original split-flap row of digit tiles."""
+
+    def __init__(self, show_seconds, is_12h, parent=None):
+        super().__init__(parent)
+        layout = QHBoxLayout(self)
+        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.digit_widgets = []
+        for i in range(6 if show_seconds else 4):
+            if i in (2, 4):
+                layout.addWidget(ColonSeparator())
+            digit = FlipDigit()
+            self.digit_widgets.append(digit)
+            layout.addWidget(digit)
+
+    def set_time(self, digits, am_pm):
+        for widget, digit in zip(self.digit_widgets, digits):
+            widget.set_digit(digit)
+
+        first = self.digit_widgets[0]
+        if am_pm:
+            first.set_am_pm(am_pm)
+        else:
+            first.clear_am_pm()
+
+
+class MinimalTimeDisplay(QWidget):
+    """Template: just the time, in large light type.
+
+    No tiles and no seam -- only a whisper of a backdrop so the digits stay
+    readable over a light wallpaper.
+    """
+
+    PAD_X = 30
+    PAD_Y = 24
+
+    def __init__(self, show_seconds, is_12h, parent=None):
+        super().__init__(parent)
+        self.text = ""
+        self.am_pm = ""
+
+        self.font = QFont(light_font_family(), 58, QFont.Weight.Light)
+        self.small_font = QFont(light_font_family(), 13, QFont.Weight.Medium)
+
+        metrics = QFontMetrics(self.font)
+        ink = metrics.tightBoundingRect("0123456789")
+        self.cell_w = metrics.horizontalAdvance("8")
+        self.colon_w = int(self.cell_w * 0.55)
+        self.ink_h = ink.height()
+        self.ink_y = ink.y()
+
+        digit_count = 6 if show_seconds else 4
+        colon_count = 2 if show_seconds else 1
+        width = (digit_count * self.cell_w + colon_count * self.colon_w
+                 + 2 * self.PAD_X)
+        if is_12h:
+            width += 14 + QFontMetrics(self.small_font).horizontalAdvance("PM")
+
+        self.setFixedSize(width, self.ink_h + 2 * self.PAD_Y)
+
+    def set_time(self, digits, am_pm):
+        pairs = [digits[i:i + 2] for i in range(0, len(digits), 2)]
+        text = ":".join(pairs)
+        if text != self.text or am_pm != self.am_pm:
+            self.text = text
+            self.am_pm = am_pm
+            self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        painter.setBrush(QColor(12, 12, 14, 120))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(self.rect(), 14, 14)
+
+        painter.setFont(self.font)
+        painter.setPen(QColor(242, 238, 228))
+        metrics = QFontMetrics(self.font)
+        baseline = self.PAD_Y - self.ink_y
+
+        x = self.PAD_X
+        for ch in self.text:
+            cell = self.colon_w if ch == ":" else self.cell_w
+            glyph_w = metrics.horizontalAdvance(ch)
+            painter.drawText(int(x + (cell - glyph_w) / 2), baseline, ch)
+            x += cell
+
+        if self.am_pm:
+            painter.setFont(self.small_font)
+            painter.setPen(QColor(178, 174, 166))
+            small_ink = QFontMetrics(self.small_font).tightBoundingRect(self.am_pm)
+            painter.drawText(int(x + 14), self.PAD_Y - small_ink.y(), self.am_pm)
+
+
+class TerminalTimeDisplay(QWidget):
+    """Template: a quiet terminal panel with a prompt and a blinking cursor."""
+
+    PAD_X = 24
+    PAD_Y = 18
+    PROMPT = "$ "
+
+    INK = QColor(134, 222, 148)      # soft phosphor green
+    DIM = QColor(92, 128, 100)
+    PANEL = QColor(10, 14, 12, 235)
+    EDGE = QColor(46, 66, 52)
+
+    def __init__(self, show_seconds, is_12h, parent=None):
+        super().__init__(parent)
+        self.text = ""
+        self.am_pm = ""
+        self._cursor_on = True
+
+        self.font = QFont(mono_font_family(), 26, QFont.Weight.Medium)
+        metrics = QFontMetrics(self.font)
+        self.char_w = metrics.horizontalAdvance("0")
+        self.line_h = metrics.ascent() + metrics.descent()
+
+        chars = len(self.PROMPT) + (8 if show_seconds else 5)
+        if is_12h:
+            chars += 3  # " PM"
+        chars += 2      # gap + cursor block
+
+        self.setFixedSize(int(chars * self.char_w + 2 * self.PAD_X),
+                          self.line_h + 2 * self.PAD_Y)
+
+        self._blink = QTimer(self)
+        self._blink.timeout.connect(self._toggle_cursor)
+        self._blink.start(600)
+
+    def _toggle_cursor(self):
+        self._cursor_on = not self._cursor_on
+        self.update()
+
+    def set_time(self, digits, am_pm):
+        pairs = [digits[i:i + 2] for i in range(0, len(digits), 2)]
+        text = ":".join(pairs)
+        if text != self.text or am_pm != self.am_pm:
+            self.text = text
+            self.am_pm = am_pm
+            self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        painter.setBrush(self.PANEL)
+        painter.setPen(QPen(self.EDGE, 1))
+        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), 10, 10)
+
+        painter.setFont(self.font)
+        metrics = QFontMetrics(self.font)
+        baseline = self.PAD_Y + metrics.ascent()
+
+        x = self.PAD_X
+        painter.setPen(self.DIM)
+        painter.drawText(x, baseline, self.PROMPT)
+        x += metrics.horizontalAdvance(self.PROMPT)
+
+        painter.setPen(self.INK)
+        painter.drawText(x, baseline, self.text)
+        x += metrics.horizontalAdvance(self.text)
+
+        if self.am_pm:
+            painter.setPen(self.DIM)
+            painter.drawText(x, baseline, " " + self.am_pm)
+            x += metrics.horizontalAdvance(" " + self.am_pm)
+
+        if self._cursor_on:
+            painter.fillRect(int(x + self.char_w * 0.4), self.PAD_Y,
+                             int(self.char_w * 0.85), self.line_h, self.INK)
 
 
 class CloseButtonWidget(QPushButton):
@@ -268,7 +481,18 @@ class SettingsDialog(QDialog):
         self.resize(400, 280)
         
         layout = QFormLayout()
-        
+
+        self.template = QComboBox()
+        self.template.addItem("Flip — split-flap tiles", "flip")
+        self.template.addItem("Minimal — just the time", "minimal")
+        self.template.addItem("Terminal — prompt and cursor", "terminal")
+
+        template_index = self.template.findData(parent.template)
+        if template_index >= 0:
+            self.template.setCurrentIndex(template_index)
+
+        layout.addRow("Clock Style:", self.template)
+
         self.time_format = QComboBox()
         self.time_format.addItem("12-hour (with AM/PM)", "12hour")
         self.time_format.addItem("24-hour (military time)", "24hour")
@@ -329,6 +553,9 @@ class FlipClockOverlay(QWidget):
         self.show_seconds = self.settings.value("show_seconds", True, type=bool)
         self.opacity = self.settings.value("opacity", 0.95, type=float)
         self.desktop_only = self.settings.value("desktop_only", True, type=bool)
+        self.template = self.settings.value("template", "flip", type=str)
+        if self.template not in TEMPLATES:
+            self.template = "flip"
         
         pos = self.settings.value("position", QPoint(100, 100))
         if not isinstance(pos, QPoint):
@@ -362,66 +589,53 @@ class FlipClockOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
         
-        main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.setSpacing(8)
-        
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(5, 5, 5, 5)
+        self.main_layout.setSpacing(8)
+
         # Close button
         self.close_btn = CloseButtonWidget(self)
         self.close_btn.clicked.connect(self.quit_app)
         self.close_btn.hide()
-        
-        # Digits layout
-        self.digits_widget = QWidget()
-        self.digits_layout = QHBoxLayout(self.digits_widget)
-        self.digits_layout.setSpacing(4)
-        self.digits_layout.setContentsMargins(0, 0, 0, 0)
-        
-        self.hour1 = FlipDigit()
-        self.hour2 = FlipDigit()
-        self.colon1 = ColonSeparator()
-        self.min1 = FlipDigit()
-        self.min2 = FlipDigit()
-        self.colon2 = ColonSeparator()
-        self.sec1 = FlipDigit()
-        self.sec2 = FlipDigit()
-        
-        self.digits_layout.addWidget(self.hour1)
-        self.digits_layout.addWidget(self.hour2)
-        self.digits_layout.addWidget(self.colon1)
-        self.digits_layout.addWidget(self.min1)
-        self.digits_layout.addWidget(self.min2)
-        
-        if self.show_seconds:
-            self.digits_layout.addWidget(self.colon2)
-            self.digits_layout.addWidget(self.sec1)
-            self.digits_layout.addWidget(self.sec2)
-        
+
+        # The interchangeable time display -- one of the three templates.
+        self.display = self._create_display()
+
         # Date label - VERY BOLD
         self.date_label = QLabel()
         self.date_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.date_label.setStyleSheet("""
-            QLabel {
+        self.date_label.setStyleSheet(f"""
+            QLabel {{
                 color: white;
+                font-family: '{clock_font_family()}';
                 font-size: 16px;
                 font-weight: 900;
-                font-family: 'Arial Black', Arial;
                 letter-spacing: 4px;
                 padding: 8px;
                 background: rgba(0, 0, 0, 35);
                 border-radius: 4px;
-            }
+            }}
         """)
         
-        main_layout.addWidget(self.digits_widget)
-        main_layout.addWidget(self.date_label)
-        
-        self.setLayout(main_layout)
+        self.main_layout.addWidget(self.display, 0,
+                                   Qt.AlignmentFlag.AlignHCenter)
+        self.main_layout.addWidget(self.date_label)
+
+        self.setLayout(self.main_layout)
         self.adjustSize()
         self.setFixedSize(self.sizeHint())
-        
+
         self.position_close_button()
-    
+
+    def _create_display(self):
+        """Build the time display widget for the current template."""
+        is_12h = self.time_format == "12hour"
+        if self.template == "minimal":
+            return MinimalTimeDisplay(self.show_seconds, is_12h)
+        if self.template == "terminal":
+            return TerminalTimeDisplay(self.show_seconds, is_12h)
+        return FlipTimeDisplay(self.show_seconds, is_12h)
+
     def position_close_button(self):
         """Position close button in top-right corner"""
         self.close_btn.move(self.width() - 35, 8)
@@ -488,45 +702,24 @@ class FlipClockOverlay(QWidget):
             am_pm = ""
         
         digits = time_str.replace(":", "")
-        
-        self.hour1.set_digit(digits[0])
-        self.hour2.set_digit(digits[1])
-        self.min1.set_digit(digits[2])
-        self.min2.set_digit(digits[3])
-        
-        if self.show_seconds:
-            self.sec1.set_digit(digits[4])
-            self.sec2.set_digit(digits[5])
-        
-        if am_pm:
-            self.hour1.set_am_pm(am_pm)
-        else:
-            # Without this the marker painted in 12-hour mode stays stuck on
-            # the first digit after switching to 24-hour.
-            self.hour1.clear_am_pm()
+        if not self.show_seconds:
+            digits = digits[:4]
+
+        self.display.set_time(digits, am_pm)
 
         date_str = now.strftime("%a %b %d").upper()
         if self.date_label.text() != date_str:
             self.date_label.setText(date_str)
     
     def rebuild_clock(self):
-        """Rebuild the clock layout"""
-        while self.digits_layout.count():
-            item = self.digits_layout.takeAt(0)
-            if item.widget():
-                item.widget().setParent(None)
-        
-        self.digits_layout.addWidget(self.hour1)
-        self.digits_layout.addWidget(self.hour2)
-        self.digits_layout.addWidget(self.colon1)
-        self.digits_layout.addWidget(self.min1)
-        self.digits_layout.addWidget(self.min2)
-        
-        if self.show_seconds:
-            self.digits_layout.addWidget(self.colon2)
-            self.digits_layout.addWidget(self.sec1)
-            self.digits_layout.addWidget(self.sec2)
-        
+        """Swap in a fresh display after a template or layout change"""
+        self.main_layout.removeWidget(self.display)
+        self.display.deleteLater()
+
+        self.display = self._create_display()
+        self.main_layout.insertWidget(0, self.display, 0,
+                                      Qt.AlignmentFlag.AlignHCenter)
+
         self.adjustSize()
         self.setFixedSize(self.sizeHint())
         self.position_close_button()
@@ -584,16 +777,20 @@ class FlipClockOverlay(QWidget):
         """Show settings dialog"""
         dialog = SettingsDialog(self)
         if dialog.exec():
-            old_seconds = self.show_seconds
-            
+            # The display's geometry depends on all three of these, so any
+            # change means building it afresh.
+            old_layout = (self.show_seconds, self.time_format, self.template)
+
             self.time_format = dialog.time_format.currentData()
             self.show_seconds = dialog.show_seconds.isChecked()
             self.opacity = dialog.opacity.value() / 100.0
             self.desktop_only = dialog.desktop_only.isChecked()
-            
+            self.template = dialog.template.currentData()
+
             self.save_settings()
-            
-            if old_seconds != self.show_seconds:
+
+            if old_layout != (self.show_seconds, self.time_format,
+                              self.template):
                 self.rebuild_clock()
             
             self.apply_settings()
@@ -609,6 +806,7 @@ class FlipClockOverlay(QWidget):
         self.settings.setValue("show_seconds", self.show_seconds)
         self.settings.setValue("opacity", self.opacity)
         self.settings.setValue("desktop_only", self.desktop_only)
+        self.settings.setValue("template", self.template)
         self.settings.setValue("position", self.pos())
     
     def quit_app(self):
