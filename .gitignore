@@ -13,7 +13,10 @@ ENV/
 build/
 dist/
 *.egg-info/
+
+# Generated spec files are noise, but ours is hand-written and belongs in git.
 *.spec
+!FlipClock.spec
 
 # Editors and IDEs
 .vscode/

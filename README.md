@@ -108,8 +108,13 @@ It invokes `pythonw.exe` so the clock starts silently at sign-in. Deleting eithe
 Desktop-Digital-Clock/
 ├── desktop_timer.py    # The entire application
 ├── run_timer.bat       # Windows launcher with dependency checks
+├── build.bat           # One-command standalone build
+├── FlipClock.spec      # PyInstaller build definition
+├── make_icon.py        # Regenerates FlipClock.ico
+├── FlipClock.ico       # Multi-resolution app icon
 ├── requirements.txt    # Python dependencies
 ├── .gitignore
+├── .gitattributes
 └── README.md
 ```
 
@@ -125,6 +130,33 @@ Desktop-Digital-Clock/
 | `FlipClockOverlay` | The main window — timer, tray icon, dragging, and persistence |
 
 The clock renders at a fixed size tuned for a 16-inch laptop. This is deliberate; the digit tiles are `70 × 95` px and the layout is sized from `sizeHint()`.
+
+---
+
+## Building a standalone app
+
+You can package the clock into an app that runs without Python installed.
+
+```bat
+py -m pip install pyinstaller
+build.bat
+```
+
+The result lands in `dist\FlipClock\`. Launch `FlipClock.exe`, or right-click it and choose **Send to → Desktop** for a shortcut.
+
+It's a **folder** build, not a single file, and deliberately so: `--onefile` unpacks roughly 60 MB into `%TEMP%` on every launch, which delays the clock by several seconds at sign-in. The folder build starts in about 0.2 s. To move or share it, zip the whole `FlipClock` folder — the `.exe` will not run without its `_internal` neighbour.
+
+Expect around 95 MB on disk. `FlipClock.spec` excludes the Qt stacks the clock never touches (QML, WebEngine, Multimedia, SQL and friends); trimming further risks breaking the build for little gain.
+
+### Switching autostart over to the packaged app
+
+If "Start with Windows" was enabled while running from source, the registry still points at `pythonw.exe` and your `.py` file. Open **Settings** from the tray icon **of the packaged app**, untick **Start with Windows**, apply, then tick it again and apply. That rewrites the entry to the `.exe`.
+
+The app handles this correctly when frozen — it registers just the executable path, with no script argument, since a packaged build has no `.py` file to point at.
+
+### Changing the icon
+
+Edit the drawing code in `make_icon.py` and run `py make_icon.py`, then rebuild. It emits a multi-resolution `.ico` (16 through 256 px); the sizes below 48 px drop the numeral, which is unreadable at that scale, and keep the tile silhouette instead.
 
 ---
 
