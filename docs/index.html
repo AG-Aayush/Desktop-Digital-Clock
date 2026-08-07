@@ -37,6 +37,10 @@
 
 * { box-sizing: border-box; }
 
+/* The support buttons are flex containers, and a display rule would other-
+   wise beat the hidden attribute the script sets on them. */
+[hidden] { display: none !important; }
+
 html {
   scroll-behavior: smooth;
   scroll-padding-top: 5rem;
@@ -630,6 +634,26 @@ section { padding: clamp(7rem, 16vh, 11rem) 0; }
   margin: 1rem 0 1.2rem;
 }
 .support p { color: var(--muted); max-width: 30em; margin: 0 auto 2.4rem; }
+.support-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2rem 2.4rem;
+}
+.support-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .75rem;
+}
+.support-option .hint {
+  font-family: var(--mono);
+  font-size: .74rem;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
 .coffee {
   display: inline-flex;
   align-items: center;
@@ -644,6 +668,7 @@ section { padding: clamp(7rem, 16vh, 11rem) 0; }
   transition: border-color .15s ease, transform .14s ease;
 }
 .coffee:hover { border-color: #c8a24a; text-decoration: none; transform: translateY(-2px); }
+.coffee.intl:hover { border-color: var(--accent-dim); }
 
 footer {
   border-top: 1px solid var(--line);
@@ -963,14 +988,22 @@ footer a { color: var(--muted); }
 <section class="support" id="support">
   <div class="wrap">
     <span class="tag dim reveal">Like flipclock?</span>
-    <h2 class="reveal" style="--d:.08s">Buy me a coffee.</h2>
+    <h2 class="reveal" style="--d:.08s">Buy me a momo.</h2>
     <p class="reveal" style="--d:.14s">
       FlipClock is free and open source. If it earned a place on your
       desktop, you can support its development — it keeps the flips coming.
     </p>
-    <a class="coffee reveal" style="--d:.2s" id="coffeeBtn" href="#" rel="noopener">
-      ☕&nbsp; Buy Me a Coffee
-    </a>
+
+    <div class="support-actions reveal" style="--d:.2s">
+      <div class="support-option" id="momoOption">
+        <a class="coffee" id="momoBtn" href="#" rel="noopener">🥟&nbsp; Buy Me a Momo</a>
+        <span class="hint">Khalti · eSewa</span>
+      </div>
+      <div class="support-option" id="intlOption">
+        <a class="coffee intl" id="intlBtn" href="#" rel="noopener">🌍&nbsp; Support from anywhere</a>
+        <span class="hint">Wise · PayPal · crypto</span>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -988,10 +1021,41 @@ footer a { color: var(--muted); }
 /* ================================================================
    configuration
    ================================================================ */
-// Replace with your real Buy Me a Coffee URL:
-var BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/YOUR-USERNAME-HERE";
+/* ---- donation links -------------------------------------------------
+   Two routes, because no single one covers everybody.
 
-document.getElementById("coffeeBtn").href = BUY_ME_A_COFFEE_URL;
+   Buy Me a Momo is Nepal-based and settles through Khalti and eSewa, so
+   the money actually arrives -- Buy Me a Coffee, Ko-fi and GitHub Sponsors
+   all pay out via Stripe or PayPal, which do not serve Nepal.
+
+   The second is for supporters abroad who have no Nepali wallet. Any URL
+   works: a Wise payment link, paypal.me, or a crypto address page.
+
+   Each button hides itself until its placeholder is replaced, and the whole
+   section disappears if neither is set -- so a half-configured page never
+   sends anyone to a dead link.
+   -------------------------------------------------------------------- */
+var MOMO_URL = "https://www.buymeamomo.com/YOUR-USERNAME-HERE";
+var INTERNATIONAL_URL = "https://wise.com/pay/me/YOUR-WISE-LINK-HERE";
+
+(function () {
+  function wire(url, buttonId, optionId) {
+    var ready = !!url && url.indexOf("YOUR-") === -1;
+    if (ready) {
+      document.getElementById(buttonId).href = url;
+    } else {
+      document.getElementById(optionId).hidden = true;
+    }
+    return ready;
+  }
+
+  var momo = wire(MOMO_URL, "momoBtn", "momoOption");
+  var intl = wire(INTERNATIONAL_URL, "intlBtn", "intlOption");
+
+  if (!momo && !intl) {
+    document.getElementById("support").hidden = true;
+  }
+})();
 
 var REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
