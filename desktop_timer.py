@@ -167,10 +167,21 @@ class FlipDigit(QWidget):
             top = QRect(0, 0, w, mid)
             bottom = QRect(0, mid, w, h - mid)
 
+            # Source rectangles into a pixmap are addressed in device pixels,
+            # not the logical units we lay out in. On a scaled display (this
+            # was authored at 125%) passing logical rects crops the wrong
+            # region of the face, so every half shows a zoomed digit fragment.
+            ratio = new_face.devicePixelRatio()
+
+            def dev(rect):
+                return QRect(round(rect.x() * ratio), round(rect.y() * ratio),
+                             round(rect.width() * ratio),
+                             round(rect.height() * ratio))
+
             # The halves that have already settled: the new digit is waiting
             # up top, the old one still shows below until the card covers it.
-            painter.drawPixmap(top, new_face, top)
-            painter.drawPixmap(bottom, old_face, bottom)
+            painter.drawPixmap(top, new_face, dev(top))
+            painter.drawPixmap(bottom, old_face, dev(bottom))
 
             if self._progress < 0.5:
                 # First half of the flip: the old top folds down to the seam.
@@ -187,7 +198,7 @@ class FlipDigit(QWidget):
             painter.save()
             painter.translate(0, mid)
             painter.scale(1.0, factor)
-            painter.drawPixmap(dest, leaf, source)
+            painter.drawPixmap(dest, leaf, dev(source))
             # Darken it as it turns edge-on, so the fold has some depth.
             painter.fillRect(dest, QColor(0, 0, 0, int(90 * (1.0 - factor))))
             painter.restore()
