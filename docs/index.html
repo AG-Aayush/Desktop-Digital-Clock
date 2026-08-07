@@ -1038,10 +1038,9 @@ footer a { color: var(--muted); }
 
 var MOMO_URL = "https://buymemomo.com/aayushgnawali";
 
-// The BuyMeMomo account is still on the waitlist. Set this to true once the
-// page actually loads -- until then the button stays hidden rather than
-// sending supporters to a 404.
-var MOMO_LIVE = false;
+// Set to false to hide the momo button again -- useful if the BuyMeMomo
+// page stops resolving, so supporters never land on a 404.
+var MOMO_LIVE = true;
 
 var INTERNATIONAL_URL = "https://wise.com/pay/me/YOUR-WISE-LINK-HERE";
 
