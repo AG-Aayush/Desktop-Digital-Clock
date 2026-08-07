@@ -9,14 +9,17 @@ Usage: py desktop_timer.py  (or double-click run_timer.bat)
 """
 
 import sys
+import math
 import winreg
 from pathlib import Path
 from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLayout,
-                              QSystemTrayIcon, QMenu, QSlider, QDialog, 
+                              QSystemTrayIcon, QMenu, QSlider, QDialog,
                               QFormLayout, QCheckBox, QPushButton, QComboBox)
-from PyQt6.QtCore import QTimer, Qt, QPoint, QSettings
-from PyQt6.QtGui import QFont, QColor, QAction, QIcon, QPainter, QPen, QCursor
+from PyQt6.QtCore import (QTimer, Qt, QPoint, QRect, QSettings, QVariantAnimation,
+                          QEasingCurve)
+from PyQt6.QtGui import (QFont, QColor, QAction, QIcon, QPainter, QPen, QCursor,
+                         QPixmap, QFontMetrics)
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 
@@ -51,22 +54,86 @@ class SingleInstance:
 
 
 class FlipDigit(QWidget):
-    """Individual flip clock digit - fixed size"""
-    
+    """Individual flip clock digit - fixed size, split-flap animation"""
+
+    FLIP_MS = 260
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.current_digit = "0"
+        self.previous_digit = "0"
         self.show_am_pm = False
         self.am_pm_text = ""
-        
+
+        # None while idle; runs 0.0 -> 1.0 as the card falls.
+        self._progress = None
+        self._face_cache = {}
+
+        self._animation = QVariantAnimation(self)
+        self._animation.setDuration(self.FLIP_MS)
+        self._animation.setStartValue(0.0)
+        self._animation.setEndValue(1.0)
+        self._animation.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self._animation.valueChanged.connect(self._on_progress)
+        self._animation.finished.connect(self._on_finished)
+
         # Perfect size for 16-inch laptop
         self.setFixedSize(70, 95)
-        
+
+    def _on_progress(self, value):
+        self._progress = float(value)
+        self.update()
+
+    def _on_finished(self):
+        self._progress = None
+        self.previous_digit = self.current_digit
+        self.update()
+
     def set_digit(self, digit):
-        """Update digit"""
-        if digit != self.current_digit:
-            self.current_digit = digit
-            self.update()
+        """Update digit, flipping the old card down to reveal it"""
+        if digit == self.current_digit:
+            return
+
+        self.previous_digit = self.current_digit
+        self.current_digit = digit
+        self._animation.stop()
+        self._animation.start()
+
+    def _face(self, digit):
+        """A fully rendered tile for one digit, cached per digit and size"""
+        w, h = self.width(), self.height()
+        key = (digit, w, h)
+        cached = self._face_cache.get(key)
+        if cached is not None:
+            return cached
+
+        # Render at device resolution so the tiles stay crisp when Windows
+        # is scaling the display.
+        ratio = self.devicePixelRatioF()
+        pixmap = QPixmap(int(w * ratio), int(h * ratio))
+        pixmap.setDevicePixelRatio(ratio)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor(45, 45, 45))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(0, 0, w, h, 8, 8)
+        font = QFont("Arial", 48, QFont.Weight.Bold)
+        painter.setFont(font)
+        painter.setPen(QColor(255, 255, 255))
+
+        # Centre on the glyph's actual ink, not the font's line box. The line
+        # box reserves room for descenders that digits never use, so plain
+        # AlignCenter sits the number noticeably low of the seam.
+        ink = QFontMetrics(font).tightBoundingRect(digit)
+        baseline_x = (w - ink.width()) / 2.0 - ink.x()
+        baseline_y = (h - ink.height()) / 2.0 - ink.y()
+        painter.drawText(int(round(baseline_x)), int(round(baseline_y)), digit)
+        painter.end()
+
+        self._face_cache[key] = pixmap
+        return pixmap
     
     def set_am_pm(self, text):
         """Show the AM/PM indicator, repainting only when it actually changes"""
@@ -83,28 +150,53 @@ class FlipDigit(QWidget):
             self.update()
     
     def paintEvent(self, event):
-        """Custom paint for flip clock appearance"""
+        """Compose the tile, folding a card down over the seam mid-flip"""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+
         w = self.width()
         h = self.height()
-        
-        # Background tile
-        painter.setBrush(QColor(45, 45, 45))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(0, 0, w, h, 8, 8)
-        
-        # Horizontal split line
-        painter.setPen(QPen(QColor(25, 25, 25), 2))
-        painter.drawLine(5, h // 2, w - 5, h // 2)
-        
-        # Draw digit
-        font = QFont("Arial", 48, QFont.Weight.Bold)
-        painter.setFont(font)
-        painter.setPen(QColor(255, 255, 255))
-        painter.drawText(0, 0, w, h, Qt.AlignmentFlag.AlignCenter, self.current_digit)
-        
+        mid = h // 2
+
+        if self._progress is None:
+            painter.drawPixmap(0, 0, self._face(self.current_digit))
+        else:
+            new_face = self._face(self.current_digit)
+            old_face = self._face(self.previous_digit)
+            top = QRect(0, 0, w, mid)
+            bottom = QRect(0, mid, w, h - mid)
+
+            # The halves that have already settled: the new digit is waiting
+            # up top, the old one still shows below until the card covers it.
+            painter.drawPixmap(top, new_face, top)
+            painter.drawPixmap(bottom, old_face, bottom)
+
+            if self._progress < 0.5:
+                # First half of the flip: the old top folds down to the seam.
+                factor = math.cos(self._progress * math.pi)
+                leaf, source, dest = old_face, top, QRect(0, -mid, w, mid)
+            else:
+                # Second half: the new bottom swings up from the seam.
+                factor = math.cos((1.0 - self._progress) * math.pi)
+                leaf, source, dest = new_face, bottom, QRect(0, 0, w, h - mid)
+
+            factor = abs(factor)
+
+            # Squashing the card vertically about the seam reads as rotation.
+            painter.save()
+            painter.translate(0, mid)
+            painter.scale(1.0, factor)
+            painter.drawPixmap(dest, leaf, source)
+            # Darken it as it turns edge-on, so the fold has some depth.
+            painter.fillRect(dest, QColor(0, 0, 0, int(90 * (1.0 - factor))))
+            painter.restore()
+
+        # Seam last, so it sits above the moving card. Kept a touch lighter
+        # than the tile so it reads as a hinge rather than a black slash.
+        painter.setPen(QPen(QColor(70, 70, 70), 2))
+        painter.drawLine(5, mid, w - 5, mid)
+
         # Draw AM/PM indicator - always visible
         if self.show_am_pm:
             small_font = QFont("Arial", 11, QFont.Weight.Bold)
@@ -591,13 +683,20 @@ class FlipClockOverlay(QWidget):
     def enable_autostart(self):
         try:
             exe = Path(sys.executable).resolve()
-            # pythonw.exe has no console, so nothing flashes up at sign-in.
-            if exe.name.lower() == "python.exe":
-                windowless = exe.with_name("pythonw.exe")
-                if windowless.exists():
-                    exe = windowless
 
-            value = f'"{exe}" "{Path(__file__).resolve()}"'
+            if getattr(sys, "frozen", False):
+                # Packaged build: the executable is the whole application.
+                # Appending __file__ here would point at PyInstaller's temp
+                # extraction folder, which is deleted the moment we exit.
+                value = f'"{exe}"'
+            else:
+                # pythonw.exe has no console, so nothing flashes up at sign-in.
+                if exe.name.lower() == "python.exe":
+                    windowless = exe.with_name("pythonw.exe")
+                    if windowless.exists():
+                        exe = windowless
+                value = f'"{exe}" "{Path(__file__).resolve()}"'
+
             key = self.get_autostart_key()
             winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, value)
             winreg.CloseKey(key)
