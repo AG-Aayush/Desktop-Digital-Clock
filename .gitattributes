@@ -1,0 +1,9 @@
+# Normalise line endings so the repo stays consistent regardless of platform.
+* text=auto
+
+# Batch files must keep CRLF -- cmd.exe mis-parses LF-only scripts.
+*.bat text eol=crlf
+
+*.py   text diff=python
+*.md   text
+*.txt  text

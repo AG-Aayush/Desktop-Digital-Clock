@@ -2,10 +2,10 @@
 Retro Flip Clock Desktop Overlay - Fixed Size Version
 A beautiful flip clock widget for Windows desktop.
 
-Requirements: PyQt6
-Install: pip install PyQt6
+Requirements: PyQt6, Windows
+Install: py -m pip install -r requirements.txt
 
-Usage: python desktop_timer.py
+Usage: py desktop_timer.py  (or double-click run_timer.bat)
 """
 
 import sys
@@ -18,6 +18,15 @@ from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLa
 from PyQt6.QtCore import QTimer, Qt, QPoint, QSettings
 from PyQt6.QtGui import QFont, QColor, QAction, QIcon, QPainter, QPen, QCursor
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+
+
+# Name of our value under the Run key, and the two registry locations that
+# together decide whether Windows actually launches us at sign-in.
+AUTOSTART_NAME = "FlipClockOverlay"
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+STARTUP_APPROVED_KEY = (
+    r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
+)
 
 
 class SingleInstance:
@@ -60,10 +69,18 @@ class FlipDigit(QWidget):
             self.update()
     
     def set_am_pm(self, text):
-        """Set AM/PM indicator"""
-        self.show_am_pm = True
-        self.am_pm_text = text
-        self.update()
+        """Show the AM/PM indicator, repainting only when it actually changes"""
+        if not self.show_am_pm or self.am_pm_text != text:
+            self.show_am_pm = True
+            self.am_pm_text = text
+            self.update()
+
+    def clear_am_pm(self):
+        """Hide the AM/PM indicator, for 24-hour mode"""
+        if self.show_am_pm:
+            self.show_am_pm = False
+            self.am_pm_text = ""
+            self.update()
     
     def paintEvent(self, event):
         """Custom paint for flip clock appearance"""
@@ -211,15 +228,22 @@ class FlipClockOverlay(QWidget):
         self.desktop_only = self.settings.value("desktop_only", True, type=bool)
         
         pos = self.settings.value("position", QPoint(100, 100))
-        
+        if not isinstance(pos, QPoint):
+            pos = QPoint(100, 100)
+
         self.init_ui()
-        self.move(pos)
+        self.move(self.clamp_to_screen(pos))
         self.apply_settings()
-        
-        self.timer = QTimer()
+
+        # Tick faster than once a second and redraw only on change. A plain
+        # 1000ms timer drifts, which makes the clock visibly skip a second
+        # every so often; the setters below all no-op when nothing changed,
+        # so the extra ticks cost effectively nothing.
+        self.timer = QTimer(self)
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self.update_time)
-        self.timer.start(1000)
-        
+        self.timer.start(200)
+
         self.update_time()
         self.setup_tray()
         
@@ -299,6 +323,24 @@ class FlipClockOverlay(QWidget):
         """Position close button in top-right corner"""
         self.close_btn.move(self.width() - 35, 8)
         self.close_btn.raise_()
+
+    def clamp_to_screen(self, pos):
+        """Keep the clock reachable.
+
+        A saved position can point at a monitor that is no longer attached --
+        undock the laptop and the clock reappears somewhere you cannot see or
+        drag it back from. If the restored position touches no current screen,
+        fall back to the primary one.
+        """
+        frame = self.frameGeometry()
+        frame.moveTopLeft(pos)
+
+        for screen in QApplication.screens():
+            if screen.availableGeometry().intersects(frame):
+                return pos
+
+        primary = QApplication.primaryScreen().availableGeometry()
+        return QPoint(primary.x() + 100, primary.y() + 100)
     
     def enterEvent(self, event):
         """Show close button on hover"""
@@ -355,9 +397,14 @@ class FlipClockOverlay(QWidget):
         
         if am_pm:
             self.hour1.set_am_pm(am_pm)
-        
+        else:
+            # Without this the marker painted in 12-hour mode stays stuck on
+            # the first digit after switching to 24-hour.
+            self.hour1.clear_am_pm()
+
         date_str = now.strftime("%a %b %d").upper()
-        self.date_label.setText(date_str)
+        if self.date_label.text() != date_str:
+            self.date_label.setText(date_str)
     
     def rebuild_clock(self):
         """Rebuild the clock layout"""
@@ -497,46 +544,92 @@ class FlipClockOverlay(QWidget):
     def get_autostart_key():
         return winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
-            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            RUN_KEY,
             0,
             winreg.KEY_ALL_ACCESS
         )
-    
+
+    @staticmethod
+    def is_autostart_approved():
+        """Report whether Windows will honour our Run entry.
+
+        Task Manager's Startup tab does not delete the Run value when you
+        disable an entry -- it records a flag in a separate key, where the
+        low bit of the first byte means "disabled". An entry can therefore
+        look perfectly configured and still never launch.
+        """
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_APPROVED_KEY) as key:
+                data, _ = winreg.QueryValueEx(key, AUTOSTART_NAME)
+                return not (data[0] & 1)
+        except FileNotFoundError:
+            # No flag recorded means it has never been disabled.
+            return True
+        except Exception:
+            return True
+
+    @staticmethod
+    def approve_autostart():
+        """Clear the disabled flag so the Run entry is actually honoured."""
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, STARTUP_APPROVED_KEY,
+                                0, winreg.KEY_ALL_ACCESS) as key:
+                try:
+                    data = bytearray(winreg.QueryValueEx(key, AUTOSTART_NAME)[0])
+                except FileNotFoundError:
+                    data = bytearray(12)
+                data[0] = 2  # 2 = enabled, 3 = disabled
+                winreg.SetValueEx(key, AUTOSTART_NAME, 0,
+                                  winreg.REG_BINARY, bytes(data))
+        except FileNotFoundError:
+            # The key only exists once something has been toggled; if it is
+            # absent there is nothing suppressing us.
+            pass
+        except Exception as e:
+            print(f"Failed to clear the startup-disabled flag: {e}")
+
     def enable_autostart(self):
         try:
+            exe = Path(sys.executable).resolve()
+            # pythonw.exe has no console, so nothing flashes up at sign-in.
+            if exe.name.lower() == "python.exe":
+                windowless = exe.with_name("pythonw.exe")
+                if windowless.exists():
+                    exe = windowless
+
+            value = f'"{exe}" "{Path(__file__).resolve()}"'
             key = self.get_autostart_key()
-            exe_path = str(Path(sys.executable).resolve())
-            script_path = str(Path(__file__).resolve())
-            
-            if "python.exe" in exe_path.lower():
-                exe_path = exe_path.lower().replace("python.exe", "pythonw.exe")
-            
-            value = f'"{exe_path}" "{script_path}"'
-            winreg.SetValueEx(key, "FlipClockOverlay", 0, winreg.REG_SZ, value)
+            winreg.SetValueEx(key, AUTOSTART_NAME, 0, winreg.REG_SZ, value)
             winreg.CloseKey(key)
+
+            # Writing the Run value is not enough on its own if the entry was
+            # previously switched off in the Startup tab.
+            self.approve_autostart()
         except Exception as e:
             print(f"Failed to enable auto-start: {e}")
-    
+
     def disable_autostart(self):
         try:
             key = self.get_autostart_key()
-            winreg.DeleteValue(key, "FlipClockOverlay")
+            winreg.DeleteValue(key, AUTOSTART_NAME)
             winreg.CloseKey(key)
         except FileNotFoundError:
             pass
         except Exception as e:
             print(f"Failed to disable auto-start: {e}")
-    
+
     def is_autostart_enabled(self):
+        """True only if the entry exists *and* Windows has not disabled it."""
         try:
             key = self.get_autostart_key()
-            winreg.QueryValueEx(key, "FlipClockOverlay")
+            winreg.QueryValueEx(key, AUTOSTART_NAME)
             winreg.CloseKey(key)
-            return True
         except FileNotFoundError:
             return False
         except Exception:
             return False
+
+        return self.is_autostart_approved()
 
 
 def main():
