@@ -20,6 +20,8 @@ if errorlevel 1 goto failed
 echo.
 echo Done. The app is in dist\FlipClock\FlipClock.exe
 echo Right-click it and "Send to > Desktop" for a shortcut.
+rem Skip the prompt when chained from build_installer.bat.
+if "%~1"=="--from-installer" goto :eof
 pause
 goto :eof
 

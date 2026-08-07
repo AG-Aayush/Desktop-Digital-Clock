@@ -12,6 +12,7 @@ ENV/
 # Packaging / build output
 build/
 dist/
+dist_installer/
 *.egg-info/
 
 # Generated spec files are noise, but ours is hand-written and belongs in git.
