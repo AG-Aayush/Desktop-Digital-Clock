@@ -1,0 +1,9 @@
+# Retro Flip Clock Desktop Overlay -- dependencies
+#
+# Install into the default Python (the one run_timer.bat launches):
+#     py -m pip install -r requirements.txt
+
+# Qt 6 bindings. Supplies QtCore, QtGui, QtWidgets and QtNetwork --
+# QtNetwork's QLocalServer/QLocalSocket back the single-instance check.
+# Developed and tested against PyQt6 6.10.2 / Qt 6.10.0 on Python 3.14.
+PyQt6>=6.5,<7.0
