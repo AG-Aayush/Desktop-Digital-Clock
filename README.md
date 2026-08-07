@@ -6,8 +6,23 @@ Built with Python and PyQt6. **Windows only** — it uses `winreg` for the start
 
 ---
 
+## Download
+
+Most people want the installer, not the source:
+
+**[⬇ Download FlipClock](https://github.com/AG-Aayush/Desktop-Digital-Clock/releases/latest/download/FlipClock-Setup.exe)** · [Download page](https://ag-aayush.github.io/Desktop-Digital-Clock/)
+
+Run it and leave *Start FlipClock automatically when Windows starts* ticked. Installation is per-user, so there's no admin prompt, and the clock appears on its own after every restart.
+
+Windows will show a "Windows protected your PC" warning because the app isn't code-signed — click **More info → Run anyway**.
+
+The rest of this file is for running or modifying the source.
+
+---
+
 ## Features
 
+- **Three clock styles** — the split-flap **Flip** original, a large-type **Minimal** face, and a **Terminal** panel with a prompt and blinking cursor; switch from Settings
 - **Split-flap styling** — custom-painted digit tiles with a centre seam, rounded corners and a bold AM/PM marker
 - **12- or 24-hour time**, with an optional seconds display
 - **Adjustable opacity**, from 30% to fully opaque
@@ -83,6 +98,7 @@ Right-click the tray icon and choose **Settings**.
 
 | Setting | Default | What it does |
 |---|---|---|
+| Clock Style | Flip | Chooses the face: split-flap tiles, Minimal large type, or a Terminal panel |
 | Time Format | 12-hour | Switches between `01:30:45 PM` and `13:30:45` |
 | Show Seconds | On | Hides the seconds pair and its colon when off, narrowing the clock |
 | Opacity | 95% | Window transparency, 30–100% |
@@ -116,7 +132,11 @@ Desktop-Digital-Clock/
 ├── desktop_timer.py    # The entire application
 ├── run_timer.bat       # Windows launcher with dependency checks
 ├── build.bat           # One-command standalone build
+├── build_installer.bat # Builds the app, then the Setup.exe
 ├── FlipClock.spec      # PyInstaller build definition
+├── installer.iss       # Inno Setup installer definition
+├── docs/index.html     # Download page (GitHub Pages)
+├── .github/workflows/  # Tag a version, get a published release
 ├── make_icon.py        # Regenerates FlipClock.ico
 ├── FlipClock.ico       # Multi-resolution app icon
 ├── pyproject.toml      # Project metadata (pip install . also works)
@@ -134,6 +154,9 @@ Desktop-Digital-Clock/
 | `SingleInstance` | Binds a named local socket so a second launch detects the first and exits |
 | `FlipDigit` | One custom-painted digit tile, optionally carrying the AM/PM marker |
 | `ColonSeparator` | The `:` between digit pairs |
+| `FlipTimeDisplay` | The Flip style: a row of `FlipDigit` tiles and colons |
+| `MinimalTimeDisplay` | The Minimal style: large light type on a faint backdrop |
+| `TerminalTimeDisplay` | The Terminal style: mono panel, `$` prompt, blinking cursor |
 | `CloseButtonWidget` | The hover-revealed ✕ button |
 | `SettingsDialog` | The preferences form |
 | `FlipClockOverlay` | The main window — timer, tray icon, dragging, and persistence |
@@ -162,6 +185,34 @@ Expect around 95 MB on disk. `FlipClock.spec` excludes the Qt stacks the clock n
 If "Start with Windows" was enabled while running from source, the registry still points at `pythonw.exe` and your `.py` file. Open **Settings** from the tray icon **of the packaged app**, untick **Start with Windows**, apply, then tick it again and apply. That rewrites the entry to the `.exe`.
 
 The app handles this correctly when frozen — it registers just the executable path, with no script argument, since a packaged build has no `.py` file to point at.
+
+### Building the installer
+
+The folder build above is fine for your own machine, but for distribution you want a single `Setup.exe`:
+
+```bat
+winget install JRSoftware.InnoSetup
+build_installer.bat
+```
+
+That builds the app and wraps it, producing `dist_installer\FlipClock-Setup.exe` — around 27 MB, down from 95 MB, because Inno Setup compresses with LZMA2.
+
+The installer is per-user (`%LOCALAPPDATA%\Programs\FlipClock`), so it needs no admin rights, adds Start Menu entries and an uninstaller, and offers the autostart checkbox. It also **deletes the `StartupApproved` flag** on install — without that, a machine where the entry had once been disabled in Task Manager would silently refuse to autostart after reinstalling.
+
+### Publishing a release
+
+Tagging a version builds and publishes everything automatically via `.github/workflows/release.yml`:
+
+```bat
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+GitHub builds on a Windows runner, compiles the installer, and attaches it to a new Release. The asset filename must stay exactly `FlipClock-Setup.exe`, because the download page and the README link both point at `/releases/latest/download/FlipClock-Setup.exe`.
+
+### The download page
+
+`docs/index.html` is a self-contained download page with a live split-flap clock in it. Enable it under **Settings → Pages → Source: main branch, /docs folder**, and it publishes to `https://ag-aayush.github.io/Desktop-Digital-Clock/`. Open the file directly in a browser to preview changes.
 
 ### Changing the icon
 
