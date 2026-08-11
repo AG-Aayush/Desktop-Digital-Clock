@@ -241,3 +241,9 @@ Working as intended — the single-instance guard blocks it. Exit the first via 
 
 **The clock hides behind everything**
 That's **Stay on Wallpaper**. Turn it off in Settings to float the clock above other windows.
+
+---
+
+## License
+
+FlipClock is released under the [MIT License](LICENSE). The code is copyright AG-Aayush; use it, learn from it, fork it — just keep the copyright notice.

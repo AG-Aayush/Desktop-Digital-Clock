@@ -7,6 +7,8 @@ name = "flipclock"
 version = "1.0.0"
 description = "Retro split-flap clock overlay for the Windows desktop"
 readme = "README.md"
+license = {file = "LICENSE"}
+authors = [{name = "AG-Aayush"}]
 requires-python = ">=3.9"
 dependencies = ["PyQt6>=6.5,<7.0"]
 
