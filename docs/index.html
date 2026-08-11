@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FlipClock — a split-flap clock for your Windows desktop</title>
-<meta name="description" content="A retro split-flap clock overlay for the Windows desktop. Free, open source, starts with Windows. Three styles: Flip, Minimal, Terminal.">
+<meta name="description" content="A retro split-flap clock overlay for the Windows desktop. Free, open source, starts with Windows. Four styles: Flip, Digital, Minimal, Terminal.">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -569,6 +569,43 @@ section { padding: clamp(7rem, 16vh, 11rem) 0; }
 }
 @keyframes blink { 50% { opacity: 0; } }
 
+.preview-digital {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.preview-digital .segtile {
+  position: relative;
+  background: #17171a;
+  border-radius: 8px;
+  padding: 9px 8px;
+  line-height: 0;
+}
+.preview-digital .segtile::after {
+  content: "";
+  position: absolute;
+  left: 4px; right: 4px; top: 50%;
+  height: 1px;
+  background: rgba(255, 255, 255, .07);
+}
+.preview-digital svg {
+  width: clamp(24px, 5.4vw, 38px);
+  height: auto;
+}
+.preview-digital .seg { fill: rgba(255, 178, 66, .12); }
+.preview-digital .seg.on { fill: #ffb242; }
+.preview-digital .colon {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 0 2px;
+}
+.preview-digital .colon i {
+  width: 5px; height: 5px;
+  background: #ffb242;
+  border-radius: 1px;
+}
+
 /* ============================================================
    notices, download, open source, support
    ============================================================ */
@@ -900,7 +937,7 @@ footer a { color: var(--muted); }
 <section class="templates" id="templates">
   <div class="wrap">
     <span class="tag reveal">Choose your clock</span>
-    <h2 class="reveal" style="--d:.08s">Three styles. One clock.</h2>
+    <h2 class="reveal" style="--d:.08s">Four styles. One clock.</h2>
     <p class="sub reveal" style="--d:.14s">
       Pick a skin from Settings. Same overlay, same tray, same startup —
       a different face.
@@ -910,6 +947,12 @@ footer a { color: var(--muted); }
       <h3 class="reveal">Flip</h3>
       <p class="tagline reveal" style="--d:.06s">The original split-flap experience.</p>
       <div class="clock reveal" id="tplFlip" style="--d:.12s" aria-hidden="true"></div>
+    </div>
+
+    <div class="tpl">
+      <h3 class="reveal">Digital</h3>
+      <p class="tagline reveal" style="--d:.06s">Every digit cut from the same figure eight — flipped the same way.</p>
+      <div class="preview-digital reveal" id="tplDigital" style="--d:.12s" aria-hidden="true"></div>
     </div>
 
     <div class="tpl">
@@ -1118,10 +1161,78 @@ function setTile(tile, value) {
 }
 
 /* ================================================================
+   seven-segment preview (the Digital template)
+   ================================================================ */
+var SEG_MAP = {
+  "0": "ABCDEF", "1": "BC", "2": "ABGED", "3": "ABGCD", "4": "FGBC",
+  "5": "AFGCD", "6": "AFGEDC", "7": "ABC", "8": "ABCDEFG", "9": "ABFGCD"
+};
+
+/* the same skeleton geometry the app paints, in a 34 x 61 box */
+var SEG_POINTS = (function () {
+  var x0 = 4.5, x1 = 29.5, y0 = 4.5, y1 = 56.5, ym = 30.5, ht = 2.9, g = 1.6;
+  function h(xa, xb, y) {
+    xa += g; xb -= g;
+    return [[xa, y], [xa + ht, y - ht], [xb - ht, y - ht],
+            [xb, y], [xb - ht, y + ht], [xa + ht, y + ht]];
+  }
+  function v(x, ya, yb) {
+    ya += g; yb -= g;
+    return [[x, ya], [x + ht, ya + ht], [x + ht, yb - ht],
+            [x, yb], [x - ht, yb - ht], [x - ht, ya + ht]];
+  }
+  return { A: h(x0, x1, y0), G: h(x0, x1, ym), D: h(x0, x1, y1),
+           F: v(x0, y0, ym), B: v(x1, y0, ym),
+           E: v(x0, ym, y1), C: v(x1, ym, y1) };
+})();
+
+var SVG_NS = "http://www.w3.org/2000/svg";
+
+function buildSegClock(container, count) {
+  var digits = [];
+  for (var i = 0; i < count; i++) {
+    if (i === 2 || i === 4) {
+      var colon = document.createElement("span");
+      colon.className = "colon";
+      colon.innerHTML = "<i></i><i></i>";
+      container.appendChild(colon);
+    }
+    var tile = document.createElement("span");
+    tile.className = "segtile";
+    var svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", "0 0 34 61");
+    var segs = {};
+    for (var name in SEG_POINTS) {
+      var poly = document.createElementNS(SVG_NS, "polygon");
+      poly.setAttribute("points", SEG_POINTS[name].join(" "));
+      poly.setAttribute("class", "seg");
+      svg.appendChild(poly);
+      segs[name] = poly;
+    }
+    svg.segs = segs;
+    tile.appendChild(svg);
+    container.appendChild(tile);
+    digits.push(svg);
+  }
+  return digits;
+}
+
+function setSegDigit(svg, value) {
+  if (svg.value === value) return;
+  svg.value = value;
+  var lit = SEG_MAP[value] || "";
+  for (var name in svg.segs) {
+    svg.segs[name].setAttribute("class",
+      lit.indexOf(name) >= 0 ? "seg on" : "seg");
+  }
+}
+
+/* ================================================================
    live instances
    ================================================================ */
 var heroTiles = buildClock(document.getElementById("heroClock"), 6);
 var tplTiles  = buildClock(document.getElementById("tplFlip"), 4);
+var segTiles  = buildSegClock(document.getElementById("tplDigital"), 6);
 var demoTiles = buildClock(document.getElementById("demoTile"), 1);
 
 var DAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
@@ -1149,6 +1260,7 @@ function tick() {
   document.getElementById("heroDate").textContent = dateText;
 
   /* template previews */
+  for (var s = 0; s < segTiles.length; s++) setSegDigit(segTiles[s], d12[s]);
   document.getElementById("tplMinimal").textContent =
     pad(h12) + ":" + pad(now.getMinutes());
   document.getElementById("tplMinimalAmpm").textContent = marker;

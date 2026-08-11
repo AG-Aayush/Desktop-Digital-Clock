@@ -22,7 +22,7 @@ The rest of this file is for running or modifying the source.
 
 ## Features
 
-- **Three clock styles** — the split-flap **Flip** original, a large-type **Minimal** face, and a **Terminal** panel with a prompt and blinking cursor; switch from Settings
+- **Four clock styles** — the split-flap **Flip** original, a seven-segment **Digital** face whose LED digits flip on the same split-flap fold, a large-type **Minimal** face, and a **Terminal** panel with a prompt and blinking cursor; switch from Settings
 - **Split-flap styling** — custom-painted digit tiles with a centre seam, rounded corners and a bold AM/PM marker
 - **12- or 24-hour time**, with an optional seconds display
 - **Adjustable opacity**, from 30% to fully opaque
@@ -98,7 +98,7 @@ Right-click the tray icon and choose **Settings**.
 
 | Setting | Default | What it does |
 |---|---|---|
-| Clock Style | Flip | Chooses the face: split-flap tiles, Minimal large type, or a Terminal panel |
+| Clock Style | Flip | Chooses the face: split-flap tiles, seven-segment Digital tiles, Minimal large type, or a Terminal panel |
 | Time Format | 12-hour | Switches between `01:30:45 PM` and `13:30:45` |
 | Show Seconds | On | Hides the seconds pair and its colon when off, narrowing the clock |
 | Opacity | 95% | Window transparency, 30–100% |
@@ -147,14 +147,16 @@ Desktop-Digital-Clock/
 └── README.md
 ```
 
-`desktop_timer.py` is organised as five classes:
+`desktop_timer.py` is organised as these classes:
 
 | Class | Role |
 |---|---|
 | `SingleInstance` | Binds a named local socket so a second launch detects the first and exits |
 | `FlipDigit` | One custom-painted digit tile, optionally carrying the AM/PM marker |
+| `SegmentFlipDigit` | A `FlipDigit` whose face is a seven-segment LED skeleton instead of a font glyph |
 | `ColonSeparator` | The `:` between digit pairs |
 | `FlipTimeDisplay` | The Flip style: a row of `FlipDigit` tiles and colons |
+| `DigitalTimeDisplay` | The Digital style: `SegmentFlipDigit` tiles on the same flip animation |
 | `MinimalTimeDisplay` | The Minimal style: large light type on a faint backdrop |
 | `TerminalTimeDisplay` | The Terminal style: mono panel, `$` prompt, blinking cursor |
 | `CloseButtonWidget` | The hover-revealed ✕ button |

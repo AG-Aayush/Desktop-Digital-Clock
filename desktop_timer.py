@@ -16,10 +16,10 @@ from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLayout,
                               QSystemTrayIcon, QMenu, QSlider, QDialog,
                               QFormLayout, QCheckBox, QPushButton, QComboBox)
-from PyQt6.QtCore import (QTimer, Qt, QPoint, QRect, QSettings, QVariantAnimation,
-                          QEasingCurve)
+from PyQt6.QtCore import (QTimer, Qt, QPoint, QPointF, QRect, QSettings,
+                          QVariantAnimation, QEasingCurve)
 from PyQt6.QtGui import (QFont, QColor, QAction, QIcon, QPainter, QPen, QCursor,
-                         QPixmap, QFontMetrics, QFontDatabase)
+                         QPixmap, QFontMetrics, QFontDatabase, QPolygonF)
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 
@@ -55,9 +55,9 @@ def mono_font_family():
     return _first_available_family(MONO_FONT_PREFERENCES)
 
 
-# The clock's interchangeable skins. All three render the same time from the
+# The clock's interchangeable skins. All of them render the same time from the
 # same overlay; only the display widget differs.
-TEMPLATES = ("flip", "minimal", "terminal")
+TEMPLATES = ("flip", "digital", "minimal", "terminal")
 
 
 # Name of our value under the Run key, and the two registry locations that
@@ -94,6 +94,13 @@ class FlipDigit(QWidget):
     """Individual flip clock digit - fixed size, split-flap animation"""
 
     FLIP_MS = 260
+
+    # Face colours, overridable by subclasses that reskin the tile while
+    # keeping the falling-card animation.
+    TILE = QColor(45, 45, 45)
+    INK = QColor(255, 255, 255)
+    MARKER = QColor(220, 220, 220)
+    SEAM = QColor(70, 70, 70)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -153,12 +160,20 @@ class FlipDigit(QWidget):
 
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor(45, 45, 45))
+        painter.setBrush(self.TILE)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(0, 0, w, h, 8, 8)
+        self._paint_glyph(painter, digit, w, h)
+        painter.end()
+
+        self._face_cache[key] = pixmap
+        return pixmap
+
+    def _paint_glyph(self, painter, digit, w, h):
+        """Draw one digit onto the tile. Subclasses swap in other faces."""
         font = QFont(clock_font_family(), 48, QFont.Weight.Bold)
         painter.setFont(font)
-        painter.setPen(QColor(255, 255, 255))
+        painter.setPen(self.INK)
 
         # Centre on the glyph's actual ink, not the font's line box. The line
         # box reserves room for descenders that digits never use, so plain
@@ -167,10 +182,6 @@ class FlipDigit(QWidget):
         baseline_x = (w - ink.width()) / 2.0 - ink.x()
         baseline_y = (h - ink.height()) / 2.0 - ink.y()
         painter.drawText(int(round(baseline_x)), int(round(baseline_y)), digit)
-        painter.end()
-
-        self._face_cache[key] = pixmap
-        return pixmap
     
     def set_am_pm(self, text):
         """Show the AM/PM indicator, repainting only when it actually changes"""
@@ -242,27 +253,95 @@ class FlipDigit(QWidget):
 
         # Seam last, so it sits above the moving card. Kept a touch lighter
         # than the tile so it reads as a hinge rather than a black slash.
-        painter.setPen(QPen(QColor(70, 70, 70), 2))
+        painter.setPen(QPen(self.SEAM, 2))
         painter.drawLine(5, mid, w - 5, mid)
 
         # Draw AM/PM indicator - always visible
         if self.show_am_pm:
             small_font = QFont(clock_font_family(), 11, QFont.Weight.Bold)
             painter.setFont(small_font)
-            painter.setPen(QColor(220, 220, 220))
+            painter.setPen(self.MARKER)
             painter.drawText(8, 18, self.am_pm_text)
+
+
+class SegmentFlipDigit(FlipDigit):
+    """Seven-segment LED face on the same falling-card animation.
+
+    Every digit is the one figure-eight skeleton with different segments lit,
+    the unlit ones left as faint ghosts -- so a change reads as the shape
+    itself transforming, and the split-flap fold carries it over.
+    """
+
+    TILE = QColor(22, 22, 25)
+    MARKER = QColor(255, 178, 66, 210)
+    SEAM = QColor(58, 54, 46)
+    LIT = QColor(255, 178, 66)
+    GHOST = QColor(255, 178, 66, 26)
+
+    # Which segments light up per digit: A top, B top-right, C bottom-right,
+    # D bottom, E bottom-left, F top-left, G middle.
+    SEGMENTS = {
+        "0": "ABCDEF", "1": "BC", "2": "ABGED", "3": "ABGCD", "4": "FGBC",
+        "5": "AFGCD", "6": "AFGEDC", "7": "ABC", "8": "ABCDEFG", "9": "ABFGCD",
+    }
+
+    _skeleton_cache = {}
+
+    @classmethod
+    def _skeleton(cls, w, h):
+        """The seven segment polygons for a tile of this size, cached."""
+        cached = cls._skeleton_cache.get((w, h))
+        if cached is not None:
+            return cached
+
+        x0, x1 = w * 0.27, w * 0.73
+        y0, y1 = h * 0.17, h * 0.83
+        ym = (y0 + y1) / 2
+        ht = min(w, h) * 0.048   # half the segment thickness
+        gap = ht * 0.55          # daylight between segments at the joints
+
+        def hseg(xa, xb, y):
+            xa, xb = xa + gap, xb - gap
+            return QPolygonF([
+                QPointF(xa, y), QPointF(xa + ht, y - ht),
+                QPointF(xb - ht, y - ht), QPointF(xb, y),
+                QPointF(xb - ht, y + ht), QPointF(xa + ht, y + ht),
+            ])
+
+        def vseg(x, ya, yb):
+            ya, yb = ya + gap, yb - gap
+            return QPolygonF([
+                QPointF(x, ya), QPointF(x + ht, ya + ht),
+                QPointF(x + ht, yb - ht), QPointF(x, yb),
+                QPointF(x - ht, yb - ht), QPointF(x - ht, ya + ht),
+            ])
+
+        skeleton = {
+            "A": hseg(x0, x1, y0), "G": hseg(x0, x1, ym), "D": hseg(x0, x1, y1),
+            "F": vseg(x0, y0, ym), "B": vseg(x1, y0, ym),
+            "E": vseg(x0, ym, y1), "C": vseg(x1, ym, y1),
+        }
+        cls._skeleton_cache[(w, h)] = skeleton
+        return skeleton
+
+    def _paint_glyph(self, painter, digit, w, h):
+        lit = self.SEGMENTS.get(digit, "")
+        painter.setPen(Qt.PenStyle.NoPen)
+        for name, polygon in self._skeleton(w, h).items():
+            painter.setBrush(self.LIT if name in lit else self.GHOST)
+            painter.drawPolygon(polygon)
 
 
 class ColonSeparator(QLabel):
     """Colon separator - minimal width"""
-    
-    def __init__(self, parent=None):
+
+    def __init__(self, color="white", parent=None):
         super().__init__(parent)
         self.setText(":")
         self.setFixedWidth(15)
         self.setStyleSheet(f"""
             QLabel {{
-                color: white;
+                color: {color};
                 font-family: '{clock_font_family()}';
                 font-size: 50px;
                 font-weight: bold;
@@ -277,6 +356,15 @@ class ColonSeparator(QLabel):
 class FlipTimeDisplay(QWidget):
     """Template: the original split-flap row of digit tiles."""
 
+    digit_class = FlipDigit
+    colon_color = "white"
+
+    # Where the AM/PM marker lives. The flip face has quiet corners, so the
+    # marker sits on the first tile; the seven-segment face fills its tile
+    # right to the margins, so drawing it there overlaps the digit -- those
+    # tiles hang the marker beside the row instead.
+    external_marker_color = None
+
     def __init__(self, show_seconds, is_12h, parent=None):
         super().__init__(parent)
         layout = QHBoxLayout(self)
@@ -286,20 +374,49 @@ class FlipTimeDisplay(QWidget):
         self.digit_widgets = []
         for i in range(6 if show_seconds else 4):
             if i in (2, 4):
-                layout.addWidget(ColonSeparator())
-            digit = FlipDigit()
+                layout.addWidget(ColonSeparator(self.colon_color))
+            digit = self.digit_class()
             self.digit_widgets.append(digit)
             layout.addWidget(digit)
+
+        self.marker_label = None
+        if self.external_marker_color and is_12h:
+            label = QLabel()
+            label.setStyleSheet(f"""
+                QLabel {{
+                    color: {self.external_marker_color};
+                    font-family: '{clock_font_family()}';
+                    font-size: 13px;
+                    font-weight: bold;
+                    padding: 10px 0px 0px 6px;
+                    background: transparent;
+                }}
+            """)
+            layout.addWidget(label, 0, Qt.AlignmentFlag.AlignTop)
+            self.marker_label = label
 
     def set_time(self, digits, am_pm):
         for widget, digit in zip(self.digit_widgets, digits):
             widget.set_digit(digit)
+
+        if self.marker_label is not None:
+            if self.marker_label.text() != am_pm:
+                self.marker_label.setText(am_pm)
+            return
 
         first = self.digit_widgets[0]
         if am_pm:
             first.set_am_pm(am_pm)
         else:
             first.clear_am_pm()
+
+
+class DigitalTimeDisplay(FlipTimeDisplay):
+    """Template: seven-segment LED tiles that flip like split-flap cards."""
+
+    digit_class = SegmentFlipDigit
+    colon_color = "#ffb242"
+    external_marker_color = "#ffb242"
 
 
 class MinimalTimeDisplay(QWidget):
@@ -484,6 +601,7 @@ class SettingsDialog(QDialog):
 
         self.template = QComboBox()
         self.template.addItem("Flip — split-flap tiles", "flip")
+        self.template.addItem("Digital — seven-segment LED", "digital")
         self.template.addItem("Minimal — just the time", "minimal")
         self.template.addItem("Terminal — prompt and cursor", "terminal")
 
@@ -630,6 +748,8 @@ class FlipClockOverlay(QWidget):
     def _create_display(self):
         """Build the time display widget for the current template."""
         is_12h = self.time_format == "12hour"
+        if self.template == "digital":
+            return DigitalTimeDisplay(self.show_seconds, is_12h)
         if self.template == "minimal":
             return MinimalTimeDisplay(self.show_seconds, is_12h)
         if self.template == "terminal":
@@ -714,11 +834,19 @@ class FlipClockOverlay(QWidget):
     def rebuild_clock(self):
         """Swap in a fresh display after a template or layout change"""
         self.main_layout.removeWidget(self.display)
+        self.display.hide()
         self.display.deleteLater()
 
         self.display = self._create_display()
         self.main_layout.insertWidget(0, self.display, 0,
                                       Qt.AlignmentFlag.AlignHCenter)
+
+        # The fresh widget stays hidden until the event loop next runs, and a
+        # hidden widget contributes nothing to the layout -- so measuring now
+        # would fix the window at the size of the date strip alone, clipping
+        # the clock. Show it and settle the layout before taking the hint.
+        self.display.show()
+        self.main_layout.activate()
 
         self.adjustSize()
         self.setFixedSize(self.sizeHint())
