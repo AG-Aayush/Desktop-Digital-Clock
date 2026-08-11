@@ -42,7 +42,10 @@ jobs:
         run: choco install innosetup --no-progress -y
 
       - name: Build the installer
-        run: '& "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" installer.iss'
+        # Braces are required: the variable's name itself contains "(x86)",
+        # and without them PowerShell reads $env:ProgramFiles and appends
+        # a literal "(x86)", producing a path that does not exist.
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss'
         shell: pwsh
 
       - name: Check the installer exists
