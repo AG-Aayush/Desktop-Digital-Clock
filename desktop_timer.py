@@ -7,7 +7,7 @@ Install: py -m pip install -r requirements.txt
 
 Usage: py desktop_timer.py  (or double-click run_timer.bat)
 """
-
+import os
 import math
 import sys
 import winreg
