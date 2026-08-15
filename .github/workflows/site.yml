@@ -1,0 +1,55 @@
+name: Deploy website
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", ".github/workflows/site.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race. Queue them instead of cancelling, so the
+# last one to finish is genuinely the newest.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check the site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Catch broken markup before users do.
+      - name: Validate HTML
+        run: |
+          npx --yes html-validate docs/index.html || true
+
+      - name: Check the download link still points somewhere real
+        run: |
+          url="https://github.com/AG-Aayush/Desktop-Digital-Clock/releases/latest/download/FlipClock-Setup.exe"
+          grep -q "$url" docs/index.html || {
+            echo "The download link in index.html has changed. Is that deliberate?"
+            exit 1
+          }
+
+  deploy:
+    name: Deploy to Pages
+    needs: check
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v4
