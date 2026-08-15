@@ -19,6 +19,13 @@ Windows will show a "Windows protected your PC" warning because the app isn't co
 The rest of this file is for running or modifying the source.
 
 ---
+To verify your download, compare it against the published checksum:
+
+```powershell
+Get-FileHash FlipClock-Setup.exe -Algorithm SHA256
+```
+
+It should match the value in `FlipClock-Setup.exe.sha256` on the release page.
 
 ## Features
 
