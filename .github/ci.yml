@@ -1,0 +1,80 @@
+name: CI
+
+# Run on pull requests (before merging) and on main (to catch anything
+# that slipped through).
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# If you push twice quickly, cancel the older run. Saves minutes and
+# stops you reading stale results.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint and test
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -v
+
+  build:
+    name: Build check
+    runs-on: windows-latest
+    # Don't waste minutes building code that failed its tests.
+    needs: quality
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Build the application
+        run: python -m PyInstaller --noconfirm FlipClock.spec
+
+      - name: Confirm the executable exists
+        run: |
+          if (-not (Test-Path "dist\FlipClock\FlipClock.exe")) {
+            throw "FlipClock.exe was not produced"
+          }
+          Get-Item "dist\FlipClock\FlipClock.exe" | Select-Object Name, Length
+
+      # Keep the build so you can download and try it from the PR page,
+      # without building locally.
+      - name: Upload the build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlipClock-${{ github.sha }}
+          path: dist/FlipClock/
+          retention-days: 7
