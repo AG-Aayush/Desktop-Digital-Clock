@@ -1,39 +1,48 @@
-name: Build and publish release
-
-# Tag a version and push it, and this builds the installer and attaches it to
-# a GitHub Release:
-#
-#     git tag v1.0.0
-#     git push origin v1.0.0
-#
-# The download page links to
-# /releases/latest/download/FlipClock-Setup.exe, so the asset filename must
-# stay exactly that for the link to keep working.
+name: Release
 
 on:
   push:
-    tags:
-      - "v*"
-  workflow_dispatch:
+    tags: ["v*"]
+  workflow_dispatch:      # lets you trigger it by hand from the Actions tab
 
 permissions:
-  contents: write
+  contents: write         # needed to create a Release
 
 jobs:
-  build:
+  release:
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history, so release notes can diff tags
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
+
+      # Never ship code that fails its own tests, even when tagging.
+      - name: Test
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Read the version from pyproject.toml
+        id: version
+        shell: pwsh
+        run: |
+          $v = python -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])"
+          $tag = "${{ github.ref_name }}" -replace '^v',''
+          if ($v -ne $tag) {
+            throw "Tag $tag does not match pyproject version $v. Update one of them."
+          }
+          "version=$v" >> $env:GITHUB_OUTPUT
 
       - name: Build the application
         run: python -m PyInstaller --noconfirm FlipClock.spec
@@ -42,23 +51,30 @@ jobs:
         run: choco install innosetup --no-progress -y
 
       - name: Build the installer
-        # Braces are required: the variable's name itself contains "(x86)",
-        # and without them PowerShell reads $env:ProgramFiles and appends
-        # a literal "(x86)", producing a path that does not exist.
-        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" installer.iss'
         shell: pwsh
-
-      - name: Check the installer exists
         run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" `
+            /DAppVersion=${{ steps.version.outputs.version }} installer.iss
           if (-not (Test-Path "dist_installer\FlipClock-Setup.exe")) {
             throw "Installer was not produced"
           }
-          Get-Item "dist_installer\FlipClock-Setup.exe" |
-            Select-Object Name, Length
+
+      - name: Generate a checksum
         shell: pwsh
+        run: |
+          $hash = (Get-FileHash dist_installer\FlipClock-Setup.exe -Algorithm SHA256).Hash
+          "$hash  FlipClock-Setup.exe" | Out-File -Encoding ascii `
+            dist_installer\FlipClock-Setup.exe.sha256
+          Write-Host "SHA256: $hash"
 
       - name: Publish the release
-        run: gh release create "$env:GITHUB_REF_NAME" "dist_installer/FlipClock-Setup.exe" --generate-notes --title "FlipClock $env:GITHUB_REF_NAME"
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            dist_installer/FlipClock-Setup.exe `
+            dist_installer/FlipClock-Setup.exe.sha256 `
+            --title "FlipClock ${{ github.ref_name }}" `
+            --generate-notes `
+            --draft
