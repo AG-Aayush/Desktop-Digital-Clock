@@ -8,20 +8,50 @@ Install: py -m pip install -r requirements.txt
 Usage: py desktop_timer.py  (or double-click run_timer.bat)
 """
 
-import sys
 import math
+import sys
 import winreg
-from pathlib import Path
 from datetime import datetime
-from PyQt6.QtWidgets import (QApplication, QWidget, QLabel, QHBoxLayout, QVBoxLayout,
-                              QSystemTrayIcon, QMenu, QSlider, QDialog,
-                              QFormLayout, QCheckBox, QPushButton, QComboBox)
-from PyQt6.QtCore import (QTimer, Qt, QPoint, QPointF, QRect, QSettings,
-                          QVariantAnimation, QEasingCurve)
-from PyQt6.QtGui import (QFont, QColor, QAction, QIcon, QPainter, QPen, QCursor,
-                         QPixmap, QFontMetrics, QFontDatabase, QPolygonF)
-from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+from pathlib import Path
 
+from PyQt6.QtCore import (
+    QEasingCurve,
+    QPoint,
+    QPointF,
+    QRect,
+    QSettings,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+)
+from PyQt6.QtGui import (
+    QAction,
+    QColor,
+    QFont,
+    QFontDatabase,
+    QFontMetrics,
+    QIcon,
+    QPainter,
+    QPen,
+    QPixmap,
+    QPolygonF,
+)
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
+from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QMenu,
+    QPushButton,
+    QSlider,
+    QSystemTrayIcon,
+    QVBoxLayout,
+    QWidget,
+)
 
 # Bahnschrift is Microsoft's DIN derivative -- DIN is the transit-signage
 # typeface, and split-flap boards are railway hardware, so it suits the form
