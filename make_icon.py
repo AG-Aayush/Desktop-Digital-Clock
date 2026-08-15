@@ -11,8 +11,8 @@ down to 16px without needing to be dropped or simplified.
 import struct
 import sys
 
-from PyQt6.QtCore import Qt, QBuffer, QByteArray, QRectF, QPointF
-from PyQt6.QtGui import QGuiApplication, QImage, QPainter, QColor, QPen, QPainterPath
+from PyQt6.QtCore import QBuffer, QByteArray, QRectF, Qt
+from PyQt6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPainterPath, QPen
 
 SIZES = [16, 24, 32, 48, 64, 128, 256]
 

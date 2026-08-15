@@ -17,3 +17,18 @@ flipclock = "desktop_timer:main"
 
 [tool.setuptools]
 py-modules = ["desktop_timer"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+# E,F = pycodestyle errors and pyflakes (real bugs).
+# I   = import sorting. B = bugbear, catches subtle mistakes.
+select = ["E", "F", "I", "B", "UP"]
+ignore = [
+    "E501",  # long lines: the formatter's job, not worth failing a build over
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
