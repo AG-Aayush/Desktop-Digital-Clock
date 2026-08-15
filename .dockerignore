@@ -1,0 +1,11 @@
+.git
+.venv
+dist
+dist_installer
+build
+__pycache__
+*.pyc
+.pytest_cache
+tests
+*.exe
+*.spec

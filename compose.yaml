@@ -1,0 +1,11 @@
+services:
+  site:
+    build: .
+    ports:
+      - "8080:80"
+    # Mount the real folder over the image's copy, so edits to
+    # index.html appear on refresh with no rebuild. Read-only, because
+    # the container has no business writing to your source.
+    volumes:
+      - ./docs:/usr/share/nginx/html:ro
+    restart: unless-stopped

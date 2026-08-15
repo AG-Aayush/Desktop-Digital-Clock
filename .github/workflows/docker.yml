@@ -1,0 +1,45 @@
+name: Publish site image
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "Dockerfile", "docker/**", ".github/workflows/docker.yml"]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write      # required to push to GHCR
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Generates sensible tags automatically: latest, the branch name,
+      # and the commit SHA. The SHA tag is the useful one -- it points at
+      # exactly one build, forever, which is what you need to roll back.
+      - name: Work out the tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/site
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Reuse layers between runs. Without this every build starts
+          # from scratch and takes minutes instead of seconds.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
