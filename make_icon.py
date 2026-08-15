@@ -4,55 +4,63 @@ Run this only when the icon needs changing:
 
     py make_icon.py
 
-Windows picks whichever embedded size best fits the context, so the small
-sizes deliberately drop the numeral -- at 16px a digit is unreadable mush and
-the tile silhouette alone reads better.
+Unlike a numeral rendered in a text font, this glyph is pure geometry (a
+stadium-shaped ring split by a seam), so it holds up at every embedded size
+down to 16px without needing to be dropped or simplified.
 """
 import struct
 import sys
 
 from PyQt6.QtCore import Qt, QBuffer, QByteArray, QRectF, QPointF
-from PyQt6.QtGui import (QGuiApplication, QImage, QPainter, QColor, QFont,
-                         QFontMetrics, QPen)
+from PyQt6.QtGui import QGuiApplication, QImage, QPainter, QColor, QPen, QPainterPath
 
 SIZES = [16, 24, 32, 48, 64, 128, 256]
 
-TILE = QColor(45, 45, 45)
-SEAM = QColor(33, 150, 243)   # the app's accent blue
-DIGIT = QColor(255, 255, 255)
+TILE = QColor(20, 20, 20)      # near-black tile, matching the app's flip-tile look
+DIGIT = QColor(247, 165, 63)   # the orange from the app's digit segments
 
 
 def render(size):
-    """Draw a single flip tile at the given pixel size."""
+    """Draw a single flip tile with an orange '0'-ring digit, split by a seam."""
     image = QImage(size, size, QImage.Format.Format_ARGB32)
     image.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(image)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-    inset = max(1.0, size * 0.06)
-    radius = max(2.0, size * 0.16)
-    body = QRectF(inset, inset, size - 2 * inset, size - 2 * inset)
-
+    # Background tile.
+    tile_inset = max(1.0, size * 0.03)
+    tile_radius = size * 0.14
+    tile_body = QRectF(tile_inset, tile_inset,
+                       size - 2 * tile_inset, size - 2 * tile_inset)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(TILE)
-    painter.drawRoundedRect(body, radius, radius)
+    painter.drawRoundedRect(tile_body, tile_radius, tile_radius)
 
-    # Below roughly 48px the numeral turns to mush, so show the tile alone.
-    if size >= 48:
-        font = QFont("Arial", 1, QFont.Weight.Bold)
-        font.setPixelSize(int(size * 0.60))
-        painter.setFont(font)
-        painter.setPen(DIGIT)
-        ink = QFontMetrics(font).tightBoundingRect("8")
-        x = (size - ink.width()) / 2.0 - ink.x()
-        y = (size - ink.height()) / 2.0 - ink.y()
-        painter.drawText(int(round(x)), int(round(y)), "8")
+    # The digit: a tall stadium-shaped ring (rounded-rect outline), narrower
+    # than the tile so it reads as a "0" rather than a donut.
+    digit_w = size * 0.46
+    digit_h = size * 0.72
+    cx, cy = size / 2.0, size / 2.0
+    digit_box = QRectF(cx - digit_w / 2.0, cy - digit_h / 2.0, digit_w, digit_h)
 
-    painter.setPen(QPen(SEAM, max(1.0, size * 0.055)))
-    mid = size / 2.0
-    painter.drawLine(QPointF(inset + radius * 0.25, mid),
-                     QPointF(size - inset - radius * 0.25, mid))
+    pen_w = max(2.0, size * 0.135)
+    ring_radius = digit_w / 2.0  # fully rounded ends
+
+    ring_path = QPainterPath()
+    ring_path.addRoundedRect(digit_box, ring_radius, ring_radius)
+
+    painter.setPen(QPen(DIGIT, pen_w))
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawPath(ring_path)
+
+    # Seam: punch a thin gap through the ring's midline using the tile color,
+    # same visual language as a physical flip-clock tile split.
+    gap_h = max(1.0, size * 0.045)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(TILE)
+    painter.drawRect(QRectF(0, cy - gap_h / 2.0, size, gap_h))
+
     painter.end()
     return image
 
