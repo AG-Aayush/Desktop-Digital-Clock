@@ -7,7 +7,11 @@
 ; prompt are needed -- the app only ever writes to HKCU anyway.
 
 #define AppName "FlipClock"
-#define AppVersion "1.0.0"
+; Version is passed in by build_installer.bat, read from pyproject.toml.
+; Falls back to 0.0.0-dev so a manual ISCC run still compiles.
+#ifndef AppVersion
+  #define AppVersion "0.0.0-dev"
+#endif
 #define AppPublisher "AG-Aayush"
 #define AppURL "https://github.com/AG-Aayush/Desktop-Digital-Clock"
 #define AppExe "FlipClock.exe"

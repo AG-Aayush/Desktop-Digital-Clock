@@ -19,7 +19,11 @@ if not exist "%~dp0dist\FlipClock\FlipClock.exe" goto no_app
 
 echo.
 echo [2/2] Compiling the installer...
-"%ISCC%" "%~dp0installer.iss"
+rem Read the version from pyproject.toml so it is defined in exactly one place.
+for /f "delims=" %%v in ('"%PYTHON%" -c "import tomllib,pathlib;print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])"') do set "APPVERSION=%%v"
+if not defined APPVERSION goto failed
+echo Building installer for version %APPVERSION% ...
+"%ISCC%" /DAppVersion=%APPVERSION% "%~dp0installer.iss"
 if errorlevel 1 goto failed
 
 echo.
