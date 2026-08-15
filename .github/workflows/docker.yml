@@ -23,6 +23,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+
+
       # Generates sensible tags automatically: latest, the branch name,
       # and the commit SHA. The SHA tag is the useful one -- it points at
       # exactly one build, forever, which is what you need to roll back.
