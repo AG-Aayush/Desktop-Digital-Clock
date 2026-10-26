@@ -73,7 +73,7 @@ jobs:
       # Keep the build so you can download and try it from the PR page,
       # without building locally.
       - name: Upload the build
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: FlipClock-${{ github.sha }}
           path: dist/FlipClock/
